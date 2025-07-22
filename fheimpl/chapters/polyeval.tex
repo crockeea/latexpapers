@@ -1,0 +1,370 @@
+\documentclass[../fheimpl.tex]{subfiles}
+
+\title{Polynomial Evaluation}
+\author{Eric Crockett}
+
+\begin{document}
+	\ifcompileasbook
+	\else
+	\maketitle
+	\listoffixmes
+	\fi
+
+This chapter discusses strategies for evaluating a (uni-variate) polynomial, which may occur organically in an application, or may be the result of a polynomial approximation to a non-polynomial function (see~\cref{ch:polyapprox}). In general, we assume that the polynomial is the result of an approximation. Examples of polynomial evaluation strategies include Horner's method and Paterson-Stockmeyer (PS). 
+In general, the evaluation strategy is correlated with the type of approximation chosen, hence we may refer to specific approximation types in what follows.
+
+
+\section{Polynomial Evaluation}
+To evaluate a degree-$d$ polynomial, Horner's method requires $\mathcal{O}(d)$ multiplications, while PS requires $\mathcal{O}(\sqrt(d))$ multiplications. The ``standard" basis for evaluation is ${1, x, x^2, \ldots}$, i.e., represent the approximation as a polynomial in $x$.
+
+\subsection{Paterson-Stockmeyer}
+Consider a degree $d-1$ approximation in the standard basis, i.e.,
+\[f(x)\approx p(x) = \sum_{i=0}^{d-1} a_ix^i,\] 
+and let $k=\lceil\sqrt(d)\rceil$. Compute $1, x, x^2, \ldots, x^{k}$ using $\approx k$ multiplications, and then compute powers of $x^k$ to get $x^{2k}, x^{3k}, \ldots, x^{k^2-k}$ using an additional $k$ multiplications.
+
+Then we can evaluate $p(x)$ as
+\begin{align*}
+	p(x) & = (a_0 + a_1x + a_2x^2 + \ldots + a_{k-1}x^{k-1}) \\
+   & + (a_k + a_{k+1}x + a_{k+2}x^2 + \ldots + a_{2k-1}x^{k-1})x^k \\
+   & + \ldots \\
+   & + (a_{d-k} + a_{d-k+1}x + a_{d-k+2}x^2 + \ldots + a_{d-1}x^{k-1})x^{k^2-k}
+\end{align*}
+
+In the context of evaluating a (public) polynomial approximation on an encrypted input, we can therefore evaluate a degree-$d$ polynomial with $\mathcal{O}(\sqrt(d))$ ciphertext-ciphertext multiplications of the input, and an additional $\mathcal{O}(d)$  scalar multiplications.
+
+\subsection{Chebyshev Basis}
+As an alternative to the standard basis mentioned above, we can consider the \emph{Chebyshev basis} ${T_0(x), T_1(x), T_2(x), \ldots}$. A Chebyshev series approximation is expressed natively in the Chebyshev basis, while a Taylor series (at $a=0$) is natively expressed in the standard basis. However, we can easily convert a polynomial in one basis to any other basis. For example, consider a truncated Chebyshev series approximation. This can be converted to the standard basis with basic algebra:
+\begin{align*}
+	f(x) & \approx c_0T_0(x) + c_1T_1(x) + c_2T_2(x) \\
+   & = c_0(1) + c_1(x) + c_2(2x^2-1) \\
+   & = (c_0-c_2) + c_1x + 2c_2x^2
+\end{align*}
+
+We can also express the coefficients in the standard basis as a linear algebra problem:
+
+\[
+\begin{bmatrix}
+	1       & 0 & 0 \\
+	0       & 1 & 0 \\
+	-1      & 0 & 2
+\end{bmatrix}
+\begin{bmatrix}
+	c_0 \\
+	c_1 \\
+	c_2
+\end{bmatrix}
+\]
+Here each row of the matrix contains the coefficients (in the standard basis) of the corresponding Chebyshev polynomial. We call this the basis conversion matrix for $d=2$, denoted $A_2$.
+
+In principle, it makes no difference which basis is used for evaluation. In practice, it turns out that using the Chebyshev basis is superior to the standard basis. In the field of numerical analysis, there is a concept called a \emph{condition number} which, roughly, describes how sensitive a computation is to small input errors, such as those that accumulate during a CKKS computation, due to finite precision arithmetic, etc. A rough rule of thumb from Wikipedia is that a condition number $\kappa(A_d)$ of $10^k$ could result in losing $k$ digits of accuracy. The condition number for the Chebyshev-to-standard basis conversion matrix grows exponentially in the size of the basis; see the table below and~\cite{conditionnum}.
+
+\begin{center}
+	\begin{tabular}{ |c|c| } 
+		\hline
+		d & $\log_{10}(\kappa(A_d))$ \\ 
+		\hline
+		2 & 0 \\
+		8 & 2.3 \\ 
+		10 & 3.1 \\ 
+		13 & 4.3 \\ 
+		15 & 5.0 \\ 
+		18 & 6.1 \\ 
+		\hline
+	\end{tabular}
+\end{center}
+
+This means that if we create (say) a truncated Chebyshev series approximation and convert it to the standard basis, evaluating the approximation will be \emph{extremely} sensitive to input errors. A more numerically stable way to evaluate such an approximation is to use the Chebyshev basis directly, as suggested in~\cite{cryptoeprint:2018/1043}.
+
+
+\subsection{Direct Evaluation}
+Assume we have created an approximation with the Chebyshev basis:
+\[p(x)=\sum_{i=0}^d p_iT_i(x)\]
+
+If we are given $u=T_1(u)$ and wish to evaluate $p(u)$, we can use \cref{eqn:chebyeven} and \ref{eqn:chebyodd} to evaluate all Chebyshev basis elements $\{T_i(u)\}_{i\in [0, d]}$ at $u$. Now we can evaluate $p$ by performing $d+1$ scalar multiplications and $d$ additions. See~\cref{sec:evalanalysis} for a full analysis and comparison to other approaches.	
+
+\subsection{Chebyshev-basis Polynomial Arithmetic}
+We will need to compute $\text{quot\_rem}$ for Chebyshev polynomials, i.e., given the Chebyshev-basis coefficents of polynomials $f(x)$ and $g(x)$, we seek the Chebyshev-basis coefficients of polynomial $q(x)$ and $r(x)$ such that $f(x) = q(x)\cdot g(x) + r(x)$. \cite{cryptoeprint:2018/1043} shows how to do this, but we explain in more detail below. First, we need the following lemma:
+
+\begin{lemma}
+	\label{lem:r0lemma}
+	Let $g(x)$ be a monic polynomial in the Chebyshev basis, $\deg(g)=k$ and $n>k\ge 1$. Then we can construct a polynomial $r_0(x) = T_n(x) - 2g(x)T_{n-k}(x)$ such that $\deg(r_0) < n$.
+\end{lemma}
+\begin{proof}
+	First, assume that $r_0(x)$ exists. By assumption, the largest term in $g(x)$ is $T_k(x)$, so the largest term of $g(x)T_{n-k}(x)$ is $T_n(x)T_{n-k}(x)$. Using the identity\[T_a(x)\cdot T_b(x) = \frac{1}{2}(T_{a+b}(x)+T_{\abs{a-b}}(x))\]
+	we see that the largest term of $2g(x)T_{n-k}(x)$ is exactly $T_n(x)$, meaning that the largest term of $r_0(x)$ is strictly smaller than $T_n(x)$.
+	
+	To construct $r_0(x)$ in the Chebyshev basis, we use the same identity as the previous case:
+	\begin{align}
+		T_n(x)-2g(x)T_{n-k}(x) & = T_n(x)-2\sum_{i=0}^kg_jT_j(x)T_{n-k}(x) \\
+		& = T_n(x)-2\sum_{i=0}^k\frac{1}{2}g_j(T_{n-k+j} + T_{\abs{n-k-j}}) \\
+		& = T_n(x)-\sum_{i=0}^kg_j(T_{n-k+j} + T_{\abs{n-k-j}})
+	\end{align}
+\end{proof}
+
+\begin{algorithm}
+	\caption{Chebyshev-Basis Quot\_Rem}\label{alg:chebydiv}
+	\begin{algorithmic}[1]
+		\Procedure{ChebyshevMonomialDiv}{$n$, $g$}
+		\Comment Compute $q, r\gets T_n(x).divmod(g(x))$
+		\State \Comment $g$ must be monic
+		\State $k \gets \deg(g)$
+		
+		\If {$n < k$} \Comment{base case}
+		\State \Return $(0, T_n(x))$
+		\ElsIf{$n == k$} \Comment{base case}
+		\State \Return $(1, T_n(x)-g(x))$
+		\Else
+		\Comment induction step
+		\State $r_0 \gets T_n(x)$
+		\For{$j$ in range$(k+1)$}
+		\State $r_0 \gets r_0 - g_j\cdot (T_{n+j-k}(x) + T_{\abs{n-j-k}}(x))$
+		\EndFor
+		
+		\State $s_0, t_0 \gets \text{ChebyshevDiv}(r_0, g)$
+		\Comment This calls the full division algorithm
+		
+		\State \Return $(s_0 + 2T_{n-k}(x), t_0)$
+		\EndIf
+		\EndProcedure
+		\State
+		
+		
+		\Procedure{ChebyshevDiv}{$f$, $g$}
+		\Comment Compute $q, r\gets T_n(x).divmod(g(x))$
+		\State \Comment $g$ must be monic
+		\State $n \gets \deg(f)$
+		\State $k \gets \deg(g)$
+		
+		\If {$k == 0$} \Comment{base case}
+		\State \Return $(f, 0)$
+		\EndIf
+		
+		\State $q\gets 0$
+		\State $r\gets 0$
+		
+		\For {$i$ in range $(n+1)$}
+		\State $q_i, r_i\gets \text{ChebyshevMonoDiv}(i, g)$
+		\State $q \gets q + f_i\cdot q_i$
+		\State $r \gets r + f_i\cdot r_i$
+		\EndFor
+		\State \Return $(q,r)$
+		\EndProcedure
+	\end{algorithmic}
+\end{algorithm}
+
+First, we show the correctness of \textrm{ChebyshevMonomialDiv}.
+\begin{lemma}
+	\label{lem:chebymonodiv}
+	Given polynomials $f(x)=T_n(x)$ and $g(x)$ in Chebyshev basis, \textrm{ChebyshevMonomialDiv} outputs the quotient and remainder of $f(x)/g(x)$ in Chebyshev basis.
+\end{lemma}
+\begin{proof}
+	The proof proceeds by induction on $n=\deg(f)$. We handle three base case:
+	\begin{itemize}
+		
+		\item $\bm{\deg(f) < \deg(g)}$: The quotient is 0, and the remainder is $f(x)$, as handled by lines 4-5.
+		
+		\item $\bm{\deg(g) == \deg(f)}$: Let $g(x) = T_k(x) + \sum_{i=0}^{k-1}g_jT_j(x) = f(x) + \sum_{i=0}^{k-1}g_jT_j(x)$, thus $f(x) = g(x) + \left(\sum_{i=0}^{k-1}-g_jT_j(x)\right)$.
+	\end{itemize}
+	
+	For the induction step, assume $\deg(f) > \deg(g)$. By~\cref{lem:r0lemma}, we can write $T_n(x) = r_0(x) + 2g(x)T_{n-k}(x)$ per~\cref{lem:r0lemma}. By induction, since $\deg(r_0)<n$, we can recursively divide $r_0(x)$ by $g(x)$ to get $r_0(x) = s_0(x)g(x)+t_0(x)$ where $\deg(t_0)<k$. Then $f(x) = (s_0(x)+2T_{n-k}(x))g(x)+t_0(x)$. You can see this step in lines 9-13 of~\cref{lem:r0lemma}.
+\end{proof}
+
+We can now see how the mutually-recursive \textrm{ChebyshevDiv} and \textrm{ChebyshevMonoDiv} work on an arbitrary polynomial $f(x)=\sum_{i=0}^n f_iT_i(x)$. First, in~\cref{alg:chebydiv}, we check to see if $\deg(g) == 0$. If so, since $g$ is monic, this implies that $g(x)=T_0(x)=1$. In this case, the quotient is $f(x)$ and the remainder is 0, as handled by line 6. Otherwise, we divide each monomial of $f(x)$ by $g(x)$ using \textrm{ChebyshevMonoDiv}, scale the output by the corresponding coefficient of $f(x)$, and accumulate the result. This is roughly described in~\cite{cryptoeprint:2018/1043}.
+
+Note: \cref{alg:chebydiv} assumes that $g$ is monic; we can handle the case when $g$ is not monic by computing $q,r' = \textrm{ChebyshevDiv}(f/g_d, g/g_d)$ and returning $q, g_d\cdot r$.
+
+\subsection{Evaluation Via Paterson-Stockmeyer}
+We can get an efficient \emph{and} stable evaluation if we combine the Chebyshev basis representation of the approximation with a (modified version of) the Paterson-Stockmeyer algorithm; see~\cite{cryptoeprint:2018/1043}.
+
+Assume we have created an approximation with the Chebyshev basis:
+\[p(x)=\sum_{i=0}^d p_iT_i(x)\]
+
+\begin{algorithm}
+	\caption{Simple Paterson-Stockmeyer in Chebyshev Basis}\label{alg:chebyps}
+	\begin{algorithmic}[1]
+		\Procedure{ChebyshevPS}{$p$, $u$}
+		\Comment Compute $p(u)$
+		\State $n \gets \deg(p)$
+		\State $m \gets \lceil\sqrt{n}\rceil$
+		\State $k \gets \lfloor \frac{n}{m}\rfloor + 1$
+		
+		\State $\mathrm{bs} \gets [0$ for $i$ in range$(k+1)]$
+		\Comment{$\mathrm{bs}[i] = T_i(u)$}
+		\State $\mathrm{bs}[0] = 1$
+		\State $\mathrm{bs}[1] = u$
+		\For {$i$ in range$(2,k+1)$}
+			\State halfI $=\lfloor i / 2\rfloor$
+			\State twoTHalfI $= \mathrm{bs}[\mathrm{halfI}] + \mathrm{bs}[\mathrm{halfI}]$
+			\Comment{Note that we add rather than multiplying for efficient HE}
+			\If{$i \bmod 2 == 0$}
+				\State $\mathrm{bs}[i] = \mathrm{twoTHalfI}\cdot \mathrm{bs}[\mathrm{halfI}] - 1$
+				\Comment \cref{eqn:chebyeven}
+			\Else
+				\State $\mathrm{bs}[i] = \mathrm{twoTHalfI}\cdot \mathrm{bs}[\mathrm{halfI}+1] - u$
+				\Comment \cref{eqn:chebyodd}
+			\EndIf
+		\EndFor
+		
+		\State $\mathrm{gs} \gets [0$ for $i$ in range$(m)]$
+		\Comment{$\mathrm{gs}[i] = T_{i\cdot k}(u)$}
+		\State $\mathrm{gs}[0] = 1$
+		\State $\mathrm{gs}[1] = \textrm{bs}[k]$
+		\For {$i$ in range$(2, m)$}
+		\State halfI $=\lfloor i / 2\rfloor$
+		\State twoTHalfI $= \mathrm{gs}[\mathrm{halfI}] + \mathrm{gs}[\mathrm{halfI}]$
+		\If{$i \bmod 2 == 0$}
+		\State $\mathrm{bs}[i] = \mathrm{twoTHalfI}\cdot \mathrm{gs}[\mathrm{halfI}] - 1$
+		\Comment \cref{eqn:chebyeven}
+		\Else
+		\State $\mathrm{bs}[i] = \mathrm{twoTHalfI}\cdot \mathrm{gs}[\mathrm{halfI}+1] - u$
+		\Comment \cref{eqn:chebyodd}
+		\EndIf
+		\EndFor
+		
+		\State $pu \gets 0$
+		\For {$i$ in range $(m-1, -1, -1)$}
+			\State $q, r \gets p.\text{quot\_rem}(T_{i\cdot k}(x))$
+			
+			
+			\State $t \gets 0$
+			\For {$j$ in range$(\deg(q))$}
+				\State $t \gets t + \mathrm{bs}[j]\cdot q_j$
+			\EndFor
+			\State $pu \gets pu + \mathrm{gs}[i]\cdot t$
+			\State $p \gets r$
+			\Comment Continue to process the remainder
+		\EndFor
+		\State \Return $pu$
+		\EndProcedure
+	\end{algorithmic}
+\end{algorithm}
+
+\Cref{alg:chebyps} gives a simple tweak to the Paterson-Stockmeyer algorithm that works in the Chebyshev basis. In short, lines 3-4 pick the baby-step and giant-step sizes. Note that we need $m\cdot k > n$ because the largest representable term will be $(m-1)\cdot k + (k-1) = m\cdot k - 1$. In lines 5-24, we compute the baby steps and giant steps in log-depth. The loop on line 26 divides out a giant-step to get the quotient and remainder for that step. We evaluate the quotient at $u$ using the baby steps (lines 28-30), then multiply the result by the giant step (line 31). We recurse on the remainder.
+
+Note that we can pre-compute the Paterson-Stockmeyer coefficients in advance to avoid doing evaluation-time polynomial division.
+
+\subsection{Baby-Step Giant-Step}
+\cite{cryptoeprint:2018/1043} gives a more complicated algorithm which we describe here.
+
+\begin{algorithm}
+	\caption{Baby-Step/Giant-Step in Chebyshev Basis}\label{alg:chebyBSGS}
+	\begin{algorithmic}[1]
+		\Procedure{ChebyshevPSExpHelper}{\textrm{bs}, \textrm{gs}, $f$, $k$, $m$}
+		\Comment Evaluate $f$, where $\deg(f)=k2^m-1$
+		
+		\If {$\deg(f) <= k$}
+			\Comment Evaluate $f$ using $bs$
+			\State $t \gets 0$
+			\For {$j$ in range$(\deg(f))$}
+				\State $t \gets t + \mathrm{bs}[j]\cdot f_j$
+			\EndFor
+			\State \Return $t$
+		\EndIf
+		
+		\State $q, r \gets f.\text{quot\_rem}(T_{k2^{m-1}}(x))$
+		\State $\tilde{r} \gets r - T_{k2^{m-1}-1}(x)$
+		\State $c, s \gets \tilde{r}.\text{quot\_rem}(q)$
+		\Comment $\deg(c) <= k-1$
+		\State $\tilde{s} \gets s + T_{k2^{m-1}-1}(x)$
+		\State evalQ $\gets$ ChebyshevPSExpHelper(\textrm{bs}, \textrm{gs}, $q$, $k$, $m-1$)
+		\State eval$\tilde{\mathrm{S}}\gets$ ChebyshevPSExpHelper(\textrm{bs}, \textrm{gs}, $\tilde{s}$, $k$, $m-1$)
+		\State evalC $\gets$ ChebyshevPSExpHelper(\textrm{bs}, \textrm{gs}, $c$, $k$, $m-1$)
+		\Comment{Will hit the base case immediately}
+		\State \Return $(\mathrm{evalC} + \mathrm{gs}[m-1])\cdot \mathrm{evalQ} + \mathrm{eval\tilde{S}}$ \label{loc:expcombo}
+		\EndProcedure
+		\State
+		
+		
+		\Procedure{ChebyshevPSExp}{$p$, $u$}
+		\Comment Compute $p(u)$
+		\State $n \gets \deg(p)$
+		\State $k \gets \lceil \sqrt{n/2}\rceil$
+		\State $m \gets \lfloor\log{n/k+1}\rfloor$+1
+		
+		\State $\mathrm{bs} \gets [0$ for $i$ in range$(k+1)]$
+		\State $\ldots$
+		\Comment{Compute \textrm{bs} exactly as in~\cref{alg:chebyps}}
+		
+		\State $\mathrm{gs} \gets [0$ for $i$ in range$(m)]$
+		\Comment{$\mathrm{gs}[i] = T_{2^i\cdot k}(u)$}
+		\State $\mathrm{gs}[0] = \textrm{bs}[k]$
+		\For {$i$ in range$(1,m)$}
+			\State $\mathrm{gs}[i] = (\mathrm{gs}[i-1]+\mathrm{gs}[i-1])\cdot \mathrm{gs}[i-1] - 1$
+		\Comment \cref{eqn:chebyeven}
+		\EndFor
+		
+		\State $\mathrm{gsp} \gets \mathrm{gs}[0]$
+		\Comment{$\mathrm{gsp} = T_{(2^{m-1}-1)\cdot k}(u)$}
+		\For {$i$ in range$(2,m+1)$}
+			\State $\mathrm{gsp} \gets (\mathrm{gsp}+\mathrm{gsp})\cdot \mathrm{gs}[i-1] - \mathrm{gs}[0]$
+		\EndFor
+		
+		\State $\tilde{p} = p + T_{k2^m-1}(x)$
+		
+		\State \Return \textrm{ChebyshevPSExpHelper}(\textrm{bs}, \textrm{gs}, $\tilde{p}$, $k$, $m$) - \textrm{gsp}
+		
+		\EndProcedure
+	\end{algorithmic}
+\end{algorithm}
+
+Note that Algorithm 2 of~\cite{cryptoeprint:2018/1043} has an error on line 10: the constant should be $u^{k2^{m-1}}$. I've corrected this in~\cref{alg:chebyBSGS}, line \ref{loc:expcombo}. Recall that $\mathrm{gs}[i] = T_{k2^i}(u)$, hence $\mathrm{gs}[m-1]=T_{k2^{m-1}}(u)$, which is the Chebyshev-basis equivalent of $u^{k2^{m-1}}$.
+
+Note that we can pre-compute the Paterson-Stockmeyer coefficients in advance to avoid doing evaluation-time polynomial division.
+
+\subsection{Depth-Optimal Evaluation}
+\cite{cryptoeprint:2020/1203} gives a simpler BSGS algorithm. It shows that this algorithm isn't depth-optimal, which means that~\cref{alg:chebyBSGS} may not be depth-optimal. It then goes on to give a depth-optimal variant, where the evaluation depth of a degree-$d$ polynomial is exactly $\floor{\log d}$.
+
+%	This algorithm writes
+%	\[p(t)=\sum_{i=0}^{\floor{d/\ell}}u_{i,2^\ell}(t)\cdot T_{2^{i\cdot \ell}}(t)\]
+%	where 
+%	\[u_{i, 2^\ell}(t)=\sum_{j=0}^{2^\ell-1}c_{i,j}\cdot T_j(t),\]
+%	$c_{i,j}\in\C$, and $\deg(p)=d$.
+%	
+%	Let $u_\mathrm{max}=u_{\floor{d/\ell}, 2^\ell}(t)$.
+
+\subsection{Lazy Baby-Step Giant-Step}
+\cite{cryptoeprint:2020/1549} introduces a lazy BSGS variant (still using the Chebyshev basis). It's roughly the same as~\cref{alg:chebyBSGS}, except it gives the ciphertext circuit and delays relinearizations as long as possible. It mentions to include the depth-optimal evaluation trick from~\cite{cryptoeprint:2020/1203}.
+
+\cite{cryptoeprint:2020/1549} also proves that the approximation from~\cref{sec:varminapprox} is odd\footnote{An odd polynomial is composed only of odd-degree terms, and a Chebyshev polynomial $T_i(x)$ is odd if and only if $i$ is odd.}, and shows how to optimize the evaluation in that case.
+
+Using the variance-minimizing approximation requires a higher approximation degree than previous methods, but since it is odd, there are many savings. 
+
+This paper also claims that you shouldn't use~\cref{eqn:chebyeven} to compute $T_k(x)$ when $k/2$ is even. I tried to reproduce this, but couldn't.
+
+\subsection{Analysis}
+\label{sec:evalanalysis}
+We compare \cref{alg:chebyps} and \cref{alg:chebyBSGS}. 
+\begin{center}
+	\begin{tabular}{ |c|c|c|c| } 
+		\hline
+	 & Direct & \cref{alg:chebyps} & \cref{alg:chebyBSGS} \\ 
+		\hline
+		depth & $\lceil\log_2{n}\rceil + 1$ & $\lceil\log_2{k}\rceil + \lceil\log_2{(m - 1)}\rceil + 1   = \mathcal{O}(\log{n})$ & $\lceil\log_2{k'}\rceil+m' = \mathcal{O}(\log{n})$ \\
+		adds  & $3n-2$ & $km+2m+3k-7 \approx n+5\sqrt{n}$ & $2^{m'}k'+k'+4m'+2^{m'-1}-6  \approx n + \sqrt{2n}$        \\ 
+		cmuls & $n+1$ & $km - 1   \approx n$ & $(2^{m'}-1)k'-2^{m'-1}+1 \approx n - \sqrt{n/2}$        \\ 
+		muls  & $n-1$ & $2m+k-4 \approx 3\sqrt{n}$   & $2^{m'-1}+2m'+k'-3              \approx \sqrt{2n}$ \\
+		\hline
+	\end{tabular}
+\end{center}
+
+In general, it appears that \cref{alg:chebyps} requires fewer additions and constant multiplications, while \cref{alg:chebyBSGS} requires fewer ciphertext-ciphertext multiplications.
+
+This enables the evaluation of a degree-$d$ approximation in $\sqrt{2d}+\mathcal{O}(\log{d})$ homomorphic (non-scalar) multiplications.
+
+\enote{Add change of variable section}
+\enote{If $A$ is the change-of-basis (COB) matrix for Chebyshev-to-standard (which is ill-conditioned) and $B$ is the change-of-variable matrix, $A^{-1}BA$ is \emph{horribly} conditioned, meaning it's probably worthwhile to apply the change of variable homomorphically rather than precomputing it as part of the Paterson-Stockmeyer algorithm}
+
+\subsection{Other Work}
+\cite{cryptoeprint:2020/1549} has a good history, specifically,~\cite{cryptoeprint:2020/488, cryptoeprint:2020/1355, cryptoeprint:2020/552} for creating various approximations of modular reduction for bootstrapping, and~\cite{cryptoeprint:2020/552,cryptoeprint:2020/1203} for polynomial evaluation (in addition to the sources already cited in this document).
+
+
+\subsection{Improvements for Functions with Finite Limits}
+\cite{cryptoeprint:2022/280} provides an improved method over Paterson-Stockmeyer for functions whose limits at $\pm\infty$  are finite. The examples they give are the logistic function (aka sigmoid), $\arctan$, $\tanh$, capped ReLU, and Gaussian function. A non-example would be $\sin$. 
+In short, you approximate these functions over the ``interesting region'' and then extend the endpoints of the interesting region to infinity in both directions. Since the limit exists (by assumption), this isn't a bad approach. But it's not for, e.g., approximating $sin(x)$, $x^2$, $x^3$, etc. Their algorithm 2, and particularly Fig. 6 are compelling. This approach is most useful on large approximation domains. One (subtle) advantage of this approach is that it requires a low degree of precision compared to (say) a minimax polynomial approximation over a large range, or Chebyshev+Paterson-Stockmeyer, meaning it can give better results just from a computational precision perspective.
+
+\ifcompileasbook
+\else
+\printbibliography
+\fi
+
+\end{document}

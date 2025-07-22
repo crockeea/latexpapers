@@ -1,0 +1,153 @@
+\documentclass{article}
+
+\input{../headers/head.tex}
+% comment out to remove fixmes
+\fxsetup{status=draft}
+
+\begin{document}
+	\title{Cosine Similarity Benchmark}
+	\author{Eric Crockett}
+	\maketitle
+	
+	\listoffixmes
+	
+	\section{Introduction}
+	This document describes Shai Halevi's algorithm for cosine similarity. We have a dataset with $N$ (key, value) records. Each key is an $\ell_2$-normalized $m$-dimensional vector. Let $A$ be the $m\times N$ matrix with all of these keys. We assume that each value fits in $k$ slots.
+	
+	There is a single secret query (row) vector $v$ of dimension $m$, also $\ell_2$-normalized.
+	
+	There is a threshold $\tau<1$, and a promise that no more than $M$ records in the dataset are $\tau$-close to $v$.
+	
+	The goal is to fetch the values corresponding to the keys that are $\tau$-close to $v$.
+	
+	The server has encryptions of the key and value for each record.
+	Shai assumes we are using a ring dimension of size 65K, so there are 32K slots (note that $K$ is never a variable). The encrypted data is batched into blocks of size 32K records, where the keys for block $i$ are encoded into the slots of $m$ ciphertexts, and the values for block $i$ are encoded into the slots of $k$ additional ciphertexts. The number of blocks is $n=\ceil{N/32\mathrm{K}}$.
+		
+	The following list summarizes the notation:
+	\begin{itemize}
+		\item $N$ the number of records
+		\item $m$ the number of slots per record key
+		\item $k$ the number of slots per record value
+		\item $n:=\ceil{N/32\mathrm{K}}$, the number of ciphertexts required to hold $N$ slots
+		\item $\tau$ the dot product threshold. We return values for keys whose dot product with the query is $\ge\tau$.
+		\item $M$ the maximum number of keys above the dot product.
+		\item $C$ chunk size, used in the compaction step.
+		\item $r:=\ceil{\log_{\frac{M\cdot C}{32\mathrm{K}}}(2^{-32})}$, the maximum number of 1s in a slice of size $C\cdot n$, with probability $2^{-32}$.
+		\item $R:=\floor{32\mathrm{K}/C}$, the number of output ciphertexts
+	\end{itemize}
+	We require $C\cdot n\le 32\mathrm{K}$, and $r\cdot k\le 32\mathrm{K}$. \enote{Feel free to improve the variable names}
+	
+	The procedure proceeds as follows:
+	\begin{enumerate}
+		\item \textbf{Dot Products} Compute $u=v\cdot A$. We can isolate and duplicate each coefficient of $v$ using a multiplication by a (public) mask, followed by 16 shifts and 15 additions. Then we multiply each coefficient ciphertext by a packed row of $A$, and add the products together (for each block). This process has depth 2.\enote{I suspect Shai had a different algorithm in mind since he said it may take up to depth 8 for this step.} See \textrm{DotProds} in~\cref{alg:dotprod}.
+		
+		\item \textbf{Thresholding} Compare the slots of $u$ against the threshold $\tau$. Shai suggests using a polynomial approximation for this step, consuming 6 or 7 levels.
+		
+		\item \textbf{Compacting} The algorithm requires a promise that at most $M$ dot products will be larger than $\tau$, so the comparison vector has at most $M$ 1s in it. The output is $R$ ciphertexts, each with at most $r\cdot k$ non-zero left-justified slots. Roughly, the algorithm involves ``slicing'' the threshold vector and value matrix by taking $C$ slots from each of the $n$ ciphertexts (in the input, or in one row of the value matrix). We compact these slots into a single ciphertext, then compute a running sum. With high probability, the sum will be $\le r$, by design. For $i\in[1, r]$, we do an equality test on the running sum and multiply by the threshold vector to obtain an indicator vector with a one in the position of the $i\th$ one in the threshold vector. We can then extract the corresponding value coefficient from the value matrix, and compactly store it in an output ciphertext. See~\cref{alg:compaction} for details.
+		
+	\end{enumerate} 
+	
+	\begin{algorithm}
+		\caption{Encrypted vector/matrix multiplication. $v$ is a single CT with data in first $m$ non-zero slots. $A$ is a matrix with $m$ rows, where each row is composed of $n$ ciphertexts. The $j\th$ ciphertext in the $i\th$ row is $A_{i,j}$.}\label{alg:dotprod}
+		\begin{algorithmic}[1]
+			\Procedure{Replicate}{$x$}
+			\Comment $x$ has a value in one slot and 0s elsewhere
+			\State \Comment Output has this value in all 32K slots
+			\For{$i$ in range$(15)$}
+			\Comment Hard-coded for 32K slots
+			  \State $x \gets x + (x \gg 2^i)$
+			\EndFor
+			\State \Return $x$
+			\EndProcedure
+			\State
+			
+			\Procedure{ExtractCoeff}{$v$, $i$}
+			\Comment Return a CT with $v_i$ in all slots
+			\State $mask\gets \mathrm{Indicator}(i)$
+			\State $w\gets mask \cdot v_0$
+			\State \Return $\mathrm{Replicate}(w)$
+			\EndProcedure
+			\State
+			
+			\Procedure{DotProds}{$v$, $A$}
+			\State prods$ \gets [0]*n$
+			\For{$j$ in range$(m)$}
+			  \State $v_i\gets \mathrm{ExtractCoeff}(v, j)$
+			  \For{$i$ in range$(n)$}
+			    \State prods[$i$]$ \gets \mathrm{prods[}i\mathrm{]} + v_i\cdot A_{i, j}$
+			  \EndFor
+			\EndFor			
+			\State \Return prods
+			\EndProcedure
+		\end{algorithmic}
+	\end{algorithm}
+	
+	\begin{algorithm}
+		\caption{Compaction. $us$ is the output of the thresholding step, a vector with $n$ ciphertexts. $ps$ is a $k\times n$ matrix where each row $ps_i$ is $n$ packed ciphertexts. $ps_{i, j}$ means the $j\th$ ciphertext in the $i\th$ row}\label{alg:compaction}
+		\begin{algorithmic}[1]
+			\Procedure{RunningSum}{$v$}
+			\State $rs\gets v \cdot \mathrm{Indicator}(0)$
+			\State $acc\gets v$
+			\For{$i$ in range$(1, 32\mathrm{K})$}
+			\Comment Extracts the $i\th$ component of the running sum
+			  \State $acc \gets v + (acc \gg 1)$
+			  \State $rs \gets rs + (acc \cdot \mathrm{Indicator}(i))$
+			\EndFor
+			\State \Return $rs$
+			\EndProcedure
+			\State
+			
+			\Procedure{ExtractSlice}{$xs$, $t$}
+			\Comment $xs$ is a list of $n$ CTs, $t\in[0,R)$
+			\State mask $\gets$ [1]*$C$+[0]*($32768-C$)
+			\State $x\gets 0$
+			\For{$i$ in range$(n)$}
+				\State $x\gets x + (((xs_i\cdot (mask \gg C\cdot t)) \ll C\cdot t) \gg C\cdot i)$
+			\EndFor
+			\State \Return $x$
+			\EndProcedure
+			\State
+			
+			\Procedure{Compactify}{$us$, $ps$}
+			\State accs $\gets$ [0]*$R$
+			\For{$t$ in range$(R)$}
+			\Comment Loop over each slice
+				\State $u\gets \mathrm{ExtractSlice}(us, t)$
+				\State $v \gets \mathrm{RunningSum}(u)$
+				\State $xs \gets $[0]*$r$
+				\For{$i$ in range$(1, r+1)$}
+					\State $w_i \gets \mathrm{map}((==i), v)$
+					\Comment 1 where the running-sum is $i$, 0 elsewhere
+					\State $xs_i \gets w_i\cdot u$
+					\Comment Extracts the $i\th$ 1 from $u$
+				\EndFor
+				\For{$i$ in range$(k)$}
+				\Comment $k$ is the number of slots per value
+					\State $p\gets \mathrm{ExtractSlice}(ps_i, t)$
+					\For{$j$ in range$(1,r+1)$}
+						\Comment We assume that there are at most $r$ 1s in $u$
+					    \State $x \gets p\cdot xs_j$
+					    \Comment The value corresponding to the $j\th$ 1 from $u$
+			  		    \State $y \gets \mathrm{Replicate}(x)$
+			  		    \Comment The value is now in all slots
+			  		    \State $z \gets y\cdot \mathrm{Indicator}(j\cdot k + i-1)$
+					    \Comment The value is now in the appropriate output slot
+					    \State accs[t] $\gets$ accs[t]$+z$
+			    	\EndFor
+				\EndFor
+			\EndFor
+			\State \Return accs
+			\EndProcedure
+		\end{algorithmic}
+	\end{algorithm}
+	
+	\section{Failure Modes}
+	\subsection{Broken Promise}
+	If there are in fact $>M$ matches, this does not necessarily invalidate the results. The effect is more indirect in that it increases the probability that more than $r$ keys match in a given slice.
+	
+	\subsection{Unlucky Distribution}
+	The algorithm returns up to $r$ results per slice, and therefore up to $r\cdot R$ results total. If more than $r$ keys match for a given slice (either because we got \emph{very} unlucky, or because there are more than $M$ matches and we are only slightly unlucky), only up to $r$ results are returned per slice.
+	
+	\subsection{High-Precision Threshold} 
+	One problem that Shai identified with the thresholding step is that the polynomial approximation will return values $\approx 1$ if the dot product is larger than $\tau$ and $\approx 0$ if the dot product is smaller than $\tau$. However, for values very close to $\tau$, the polynomial approximation will return values near $1/2$, which results in inaccurate results. One way to prevent this is to require a ``promise'' that the dot products are sufficiently far away from $\tau$. \enote{Is it possible to use  scheme-switching to do a bit-by-bit comparison?}
+\end{document}

@@ -1,0 +1,182 @@
+\documentclass[../fheimpl.tex]{subfiles}
+
+\title{CKKS Bootstrapping}
+\author{Eric Crockett}
+
+\begin{document}
+    \ifcompileasbook
+    \else
+        \maketitle
+        \listoffixmes
+    \fi
+
+    \section{Introduction}
+    This chapter delves into CKKS bootstrapping; see~\cite{cryptoeprint:2023/149} for an accessible introduction. In CKKS, we must \emph{rescale} a ciphertext after\footnote{Or before, if using~\cite{cryptoeprint:2020/1118}.} each multiplication. Rescaling removes a modulus (or equivalently, increments the level of the ciphertext), hence, if the computation is deep enough, we eventually run out of moduli, and can do no more multiplications. Bootstrapping is a process which effectively ``resets'' the ciphertext to a lower level, thereby enabling addition multiplications. See\cref{sec:ckksencoding} for relevant background details.
+    
+    \subsection{High-Level Description}
+    Bootstrapping involves four steps:
+    \begin{enumerate}
+        \item ModRaise
+        \item CoeffsToSlots
+        \item EvalMod
+        \item SlotsToCoeffs
+    \end{enumerate}
+    We explore these steps in more detail below.\footnote{Note that when the input ciphertext is not fully packed, we need another step after ModRaise. When the input is fully packed, which we assume to be the case, this extra step is the identity function, so we can ignore it. We also note that when the input is not fully packed, the output of CoeffsToSlots can be a \emph{single} ciphertext rather than two. See, e.g.,~\cite{cryptoeprint:2018/1043} for details.}
+    
+    \textbf{ModRaise} In bootstrapping, the input is a ciphertext $ct$ that encrypts $m(X)$ mod $q$. The first step is to raise the modulus to $Q \gg q$, with the idea being that $t(X)$ doesn't wrap mod $Q$ since $I(x)$ has small coefficients. Therefore, $\bracks{\inner{ct, sk}}_Q = t(X)$, so we can view $ct$ as an encryption of $t(X)$ mod $Q$. 
+    
+    Since we seek an encryption of $m(X) \bmod Q'$ (for some $Q'$ hopefully only slightly smaller than $Q$), we need to evaluate reduction mod $q$ on the coefficients of $t(X)$. But homomorphic evaluation works on the \emph{slots} of $t(X)$, not the coefficients of $t(X)$. Therefore, we need to somehow get the coefficients of $t(X)$ into the slots of one or more ciphertexts. Since $t(X)$ has $N$ coefficients and a ciphertext has $N/2$ slots, we will in fact put the coefficients of $t(X)$ into exactly two ciphertexts. The CKKS encoding function $\tau^{-1}$ is specifically for transforming a vector of coefficients (say, half of the coefficients of $t(X)$) into a plaintext polynomial which encodes that vector in its slots.  
+    
+    \textbf{CoeffsToSlots} After the ModRaise step, $ct$ encrypts $t(X)\bmod Q$, which encodes some plaintext vector $z$ in its slots. Note that if we had $z$ as a plaintext vector and then encoded it, the result would be $t(X)$, i.e., $z=\tau(t(X))$. The process, then is to \emph{homomorphically} apply the encoding function to the ModRaised ciphertext, which will (roughly) put the coefficients $t(X)$ into the \emph{slots} of the ciphertext. As noted above, we need to split this process into two pieces since there are twice as many coefficients as slots. 
+    
+    Logically, split the coefficients of $t(X)$ into $t_0, t_1\in\Z^{N/2}\subset\C^{N/2}$. We can divide $U$ into $U_0$ and $U_1$, where $U_0$ is the left $\frac{N}{2}\times\frac{N}{2}$ submatrix of $U$, and $U_1$ is the right submatrix. Then
+    \[t_k = \frac{1}{N}\parens*{\overline{U_k}^\intercal\cdot z + U_k^\intercal\cdot\overline{z}}.\]
+    
+    Thus if we homomorphically apply (half of) the encoding function to the ModRaised input, the result is a ciphertext with half of the coefficients of $t(X)$ in its slots.
+    
+    \textbf{EvalMod} At this point, we have two ciphertexts, each of which encode half of the coefficients of $t(X)$ in their slots. We now need to approximate the modular reduction function on each slot. After this step, each ciphertext will encode half of the coefficients of $m(X)$ in their slots. The typical way to apply modular reduction is with a polynomial approximation; see~\cref{sec:polyapprox}. 
+    Note that it is desirable to minimize the domain of the approximation as much as possible since a larger implies a larger polynomial degree, which in turn increases the circuit depth, thereby decreasing the utility after bootstrapping. As noted in footnote~\ref{footnote:sparsekey}, the domain is directly related to the structure of the secret key. Early works relied on a sparse (i.e., low Hamming-weight) secret, but after attacks against sparse secrets were demonstrated, later works showed how to bootstrap on non-sparse secrets.
+    
+    \textbf{SlotsToCoeffs} Now that we have the coefficients of $m(X)$ in the slots of two ciphertext, we need to reverse the CoeffsToSlots procedure to move the values in the slots back to the coefficients of the plaintext polynomial. Let $v$ be the slots encoded in $m(X)$. If we had $v$ in the slots of our ciphertext, then the ciphertext would necessarily encrypt $m(X)$, which is what we want. Therefore, we want to homomorphically apply the \emph{decoding} function to the ciphertext which encode the coefficients of $m(X)$ in their slots. 
+    
+    If we have a vector $x\in \R^N$ split into two halves $x_0, x_1$, $U\cdot x = U_0x_0+U_1x_1$. Therefore, we apply the linear transformation $U_k$ to the corresponding ciphertext and add the results. The output is a single ciphertext which encodes $v$ in its slots, i.e., it decrypts to $m(X)$ as desired.
+	
+    \section{Implementation Details}
+    
+    \subsection{ModRaise}
+    
+    \subsubsection{Sparse-Secret Encapsulation}
+    \cite{cryptoeprint:2022/024} introduces an interesting ``hybrid'' between sparse and dense secrets. The key observation is that security is weakest for a fresh ciphertext. As we reduce the number of RNS components, the security margin goes up. Thus it is highest immediately before bootstrapping. They also note that $\length{I}$ is determined by the key used in the ModRaise step. 
+    
+    The idea, then, is to switch from a dense (true) secret key to a sparse secret as the first step in bootstrapping. Recall from~\cref{sec:intuition} that this involves an encryption of the dense key under the sparse key (hence the security of the sparse key is relevant), but the key-switching key is under a small modulus, and hence has relatively high security.	
+    Note that ModRaise is a public operation, therefore security is not affected. After ModRaise, we immediately switch back to the dense key using a key-switching key that encrypts the sparse secret under the dense secret (hence this ksk has high security).
+    
+    We now proceed with the rest of bootstrapping as described above, but we can use sparse-key bootstrapping techniques for efficiency without sacrificing security. Moreover, sparse bootstrapping techniques usually use an optimistic bound for $\length{I}$, which can result in bootstrapping failure if a coefficient falls outside this optimistic bound. With this technique, we can use a very sparse secret, which ensures that even a conservative bound on $\length{I}$ still leads to a modular reduction step with acceptable multiplicative depth.
+    
+    The authors note that the ModRaise can be absorbed by the second key-switch, hence ModRaise becomes two consecutive key switches.
+	
+    \subsection{CoeffsToSlots and SlotsToCoeffs}
+    From an implementation perspective, these steps are essentially identical: they consist of applying an $\frac{N}{2}\times \frac{N}{2}$ linear transform to the slots of a ciphertext.
+    
+    There are several shortcuts we can take during the computation. First, in CoeffsToSlots, we need to evaluate $\frac{1}{N}\parens*{\overline{U_k}^\intercal\cdot z + U_k^\intercal\cdot\overline{z}}$, which nominally requires two linear transforms for $k=0$ and two linear transformations for $k=1$. However, $U_k^\intercal\cdot\bar{z} = \overline{\overline{U_k}^\intercal\cdot z}$, so we only need to apply a single linear transformation per $k$, followed by a (slot-wise) conjugation. Conjugation is much cheaper than applying a linear transformation, so this is much more efficient.
+    
+    We can actually get away with only evaluating a \emph{single} linear transformation total, though. Let $A=\overline{U_0}^\intercal\cdot z$. Then $z_0=\frac{1}{N}(A+\overline{A})$, and $z_1 = \frac{i}{N}(A-\overline{A})$, though this is not obvious (to me). We note that multiplication by $i$ is also relatively cheap.
+    
+    See~\cref{ch:lineartransforms} for how to apply a linear transformation to an encrypted input. The original bootstrapping paper~\cite{cryptoeprint:2018/153} uses the matrix/vector multiplication algorithm from~\cref{sec:helibmatmulalgs}.\footnote{\cite{cryptoeprint:2018/153} makes no mention of the baby-step/giant-step optimization from~\cite{cryptoeprint:2018/244}, which was contemporaneous. \cite{cryptoeprint:2018/1043} indicates that~\cite{cryptoeprint:2018/153} did use the optimization.}
+    
+    \subsubsection{FFT-Like Decomposition}
+    While $\tau$ is not quite an FFT, \cite{cryptoeprint:2018/1043} observed that it admits an FFT-like decomposition. This increases the number of levels consumed by these steps, but reduces the number of operations. In particular, they define the $\frac{N}{2}\times\frac{N}{2}$ ``special Fourier Transform'' matrix
+    
+    \[\mathsf{SF}=
+    \begin{bmatrix}
+        1 & \zeta_0 & \zeta_0^2 & \ldots & \zeta_0^{\frac{N}{2}-1} \\
+        1 & \zeta_1 & \zeta_1^2 & \ldots & \zeta_1^{\frac{N}{2}-1} \\
+        \vdots & \vdots & \vdots & \ddots & \vdots \\
+        1 & \zeta_{\frac{N}{2}-1} & \zeta_{\frac{N}{2}-1}^2 & \ldots & \zeta_{\frac{N}{2}-1}^{\frac{N}{2}-1} \\
+        
+    \end{bmatrix}
+    \]
+    
+    They note that $U=[\mathsf{SF}\mid i\cdot\mathsf{SF}]$, and that \textsf{SF} can be implemented as bit-reversal (a permutation) followed by a sequence of butterflies. However, since we apply $U$, then round coefficient-wise, then invert $U$, we can ignore the bit-reversal step. This algorithm uses $\mathcal{O}(\log(N))$ depth and operations, while if we try to apply $U$ directly as an unstructured linear transform, we need one level and $\mathcal{O}(N)$ operations.
+
+    \subsubsection{Batching}
+    If we need to bootstrap multiple ciphertexts at the same time, we can get improvements by batching multiple SlotsToCoeffs/CoeffsToSlots together. See~\cref{sec:la-batching} for details.
+    
+    \cite{cryptoeprint:2018/1043,cryptoeprint:2018/1073} also note that we can use a hybrid approach to tradeoff between these two extremes. Specifically, they use an idea from~\cite{cryptoeprint:2014/106} to fuse some layers of the decomposition together. This reduces the number of levels consumed at the cost of increasing the number of operations per layer. \cite{cryptoeprint:2014/106} proposed a dynamic programming algorithm to find an optimal architecture for a given cost function. Cornami could therefore choose an optimal point that may differ from existing implementations.
+
+    \subsection{EvalMod}
+    We need to evaluate the modular reduction function, approximated as a polynomial. There are many ways to describe modular reduction as a smooth (continuous and differentiable) non-polynomial function. Once we have chosen the function to approximate modular reduction, there are many ways to approximate the function as a polynomial, and many ways to evaluate the polynomial approximation. The latter two choices are described in detail in~\cref{ch:polyapprox}. This section explores how various options for selecting the smooth approximation.
+    
+    The original bootstrapping paper~\cite{cryptoeprint:2018/153} uses $\frac{q}{2\pi}\sin\parens*{\frac{2\pi t}{q}}$ as the continuous function. The idea is that $\sin$ is periodic ($\sin(x) = \sin(x+2\pi)$), just like modular reduction ($x \bmod q = (x+q) \bmod q$). The paper uses a Taylor polynomial to approximate this function, but notes the large number of terms (and hence high polynomial degree) needed to make this function converge over a wide range. The paper gets around this by exploiting following identities:
+    \begin{itemize}
+        \item $\exp(i\theta) = \cos(\theta)+i\sin(\theta)$
+        \item $\exp(2i\theta) = (\exp(i\theta))^2$
+    \end{itemize}
+    This approximation relies on knowledge of the size of the coefficients of $I(X)$, namely, it assumes that the input to the modular evaluation function is smaller than $Kq$ for some $K$. It first creates a degree-$d_0$ polynomial approximation of $\exp\parens*{\frac{2\pi iX}{2^r q}}$ for some small $d_0$. It then applies the exponential double-angle theorem repeatedly by squaring the polynomial approximation several $r$ times. This produces a degree-$2^rd_0$ polynomial approximation of $\exp\parens*{\frac{2\pi iX}{q}}$ that is ``good'' on a wide interval $(-Kq, Kq)$ (and apparently better than the degree-$2^rd_0$ Taylor approximation over the same range). Let $f(X)$ be the resulting polynomial. The paper uses Euler's identity during bootstrapping to extract the $\sin$ portion: 
+    \[\sin\parens*{\frac{2\pi t}{q}} =\frac{1}{2}\overline{\parens*{f(t) - f(-t)}}\]
+    
+    In~\cite{cryptoeprint:2018/1043} Chebyshev interpolants are used to approximate the scaled sin function over the entire range, rather than a Taylor series over a smaller range (expanded via double-angle formulas). This is a more direct approach, and they show that the result has less error and requires less multiplicative depth.
+    
+    \cite{cryptoeprint:2019/688} points out that the papers above aim to approximate sin in a global sense, but that this is unnecessary: $t/q$ is close to an integer\enote{why? \cite{cryptoeprint:2021/572} makes mention of this, and says that it was observed in~\cite{cryptoeprint:2018/153}}, which is why approximating modular reduction by sin is reasonable in the first place. They improve on~\cite{cryptoeprint:2018/1043} by choosing custom evaluation points for the Chebyshev interpolant, rather than using Chebyshev nodes. This approach yields much smaller error. This paper switches to the use of cosine instead of sine, and introduces a hybrid tradeoff between the double-angle approach of~\cite{cryptoeprint:2018/1043} and the ``full-range'' approximation approach of~\cite{cryptoeprint:2018/1043}. The goal with this approach is to minimize the total number of multiplications required to evaluate the polynomial.
+    
+    \cite{cryptoeprint:2020/488, cryptoeprint:2020/1355} dispense with the trigonometric functions and directly approximate modular reduction via least-squares and Lagrange interpolation, respectively. \cite{cryptoeprint:2020/1549} points out that these result in large coefficients (cf.~\cref{sec:small-approx-coeffs}), which results in numerically unstable evaluation. Nevertheless,~\cite{cryptoeprint:2020/1355} obtained 67 bits of message precision.
+    
+    \cite{cryptoeprint:2020/552} introduced the an improved multi-interval Remez algorithm to find a minimax approximate polynomial. This approach also yields polynomials with large coefficients~\cite{cryptoeprint:2021/572}, so the authors introduced a technique to use arcsin to reduce approximation error. This increases the depth of this step, but reduces overall bootstrapping error\footnote{``introduced by sine, especially if $Q_0/\Delta$ is small (when the values are not close to the origin)''~\cite{cryptoeprint:2020/1203}. I haven't figured out exactly what this means yet.}. This approach can ``only'' achieve 40 bits of message precision~\cite{cryptoeprint:2021/572}, which is apparently not sufficient.
+    
+    \cite{cryptoeprint:2020/1203} showed how to do bootstrapping for non-sparse keys. As noted above, the difference between bootstrapping with sparse and non-sparse keys is in the EvalMod step, since we need to approximate a larger domain for non-sparse keys. They also use a scaled cosine followed by iterated double-angle forumlas, though it may be slightly different from~\cite{cryptoeprint:2019/688}. The approximation requires pre- and post-scaling of the ciphertext, which they merge into the linear transforms.
+    
+    \cite{cryptoeprint:2020/1549} uses a polynomial approximation that minimizes the error variance, rather than the Chebyshev interpolant used in prior work. It also directly approximates modular reduction, rather than a periodic trigonometric function. One of the goals in this work was to account for the noise introduced during the linear transforms.
+    
+    \cite{cryptoeprint:2021/572} shows how to obtain ``arbitrary precision'' bootstrapping with an approach similar to~\cite{cryptoeprint:2018/153}. They do not approximate modular reduction directly, but rather approximate modular reduction by a sine series, and the sine series by a Taylor series\footnote{They rely on the fact that the coefficients of the Taylor series for sine are small.}. They obtain 100 bits of bootstrapping precision. This paper assumes sparse keys (up to $K=31$). Like some prior work, they compute $\exp(ix)$ and then extract the sine component from that. They don't seem to do any arcsine correction. This is a well-written paper that contains in-depth discussions of bootstrapping precision.
+
+    \cite{cryptoeprint:2025/429} generalizes prior trigonometric approaches to the modular reduction function, resulting in near-optimal approximation errors. 
+	
+    \subsection{EvalRound}
+    \cite{cryptoeprint:2022/1256} proposes to replace EvalMod with EvalRound with the aim of reducing the number of levels required for bootstrapping. This approach reduces the scaling factors in the CoeffsToSlots steps, thereby saving modulus bits. As a tradeoff, they end up consuming \emph{more} modulus bits in SlotsToCoeffs, and they only got about 18 bits of bootstrapping precision with this approach. The idea is to replace any existing EvalMod step with $x-\mathsf{EvalMod}(x)$. This bootstraps the error term, which is later subtracted off.
+
+    \cite{cryptoeprint:2024/1379} builds on this idea to keep the reduced error from the CoeffsToSlots step, while also obtaining smaller error for SlotsToCoeffs.
+    
+    This may be used in Liberate, which would explain the subtraction in the ``cleanup'' phase.
+    
+    This paper does a good job of going into detail on scaling factors; worth reading more closely.
+    
+    \section{Alternate Approaches}
+    \subsection{Blind Rotation Bootstrapping}
+    \cite{cryptoeprint:2021/691} takes a radically different approach to bootstrapping. This paper extends the ``blind rotation technique'' from FHEW/TFHE to BGV, BFV, and CKKS. They introduce a function called ScaleMod, which utilizes blind rotations. In short, after doing a ModRaise, they have a ciphertext mod $Q$ encrypting $m+e+I\cdot q$. They use ScaleMod to compute $I\cdot q$, then subtract it off. This only takes 1-2 levels, while the traditional bootstrapping approach takes many more. One tradeoff is that the process doesn't support packed ciphertexts, so we have to bootstrap each slot in its own ciphertext.
+    
+    This idea may not yet be fully baked, but it seems like a promising approach.
+    
+    \subsection{Meta-BTS}
+    \cite{cryptoeprint:2022/1167} introduce Meta-BTS, a technique to reduce the error in bootstrapping. In short, bootstrapping takes a ciphertext with modulus $q$ and produces a new ciphertext with modulus $Q'$. We reduce the modulus back down to $q$, then subtract it from the input to get the error introduced during the bootstrap. We then bootstrap the \emph{error} term to get it mod $Q'$, and subtract it off the original bootstrap output to get a ciphertext with modulus $Q'$ with less error.
+    
+    This process can be iterated, and obviously increases the cost of bootstrapping by the number of iterations. The idea is that if the bootstrapping algorithm has $n$ bits of precision and we bootstrap the error as above (``two-fold bootstrapping''), we get a bootstrapping procedure with $2n$ bits of precision. In general, by bootstrapping the error $k$ times, we get a bootstrapping procedure with $kn$ bits of precision.
+    
+    \subsection{SlotsToCoeffs-First}
+    \cite{cryptoeprint:2022/1167, cryptoeprint:2024/1284} both mention an alternate ordering for the bootstrapping steps.~\cite[Footnote 3]{cryptoeprint:2024/1638} mentions that~\cite{cryptoeprint:2022/1167} introduces this ``slots bootstrapping'' technique, but that paper uses bootstrapping as a black box; probably that paper is a good place to dive deeper.
+    \enote{To investigate.}
+    
+    \subsection{Functional Bootstrapping}
+    \cite{cryptoeprint:2024/1623, cryptoeprint:2024/1637, cryptoeprint:2024/1638} introduce functional bootstrapping (also known as programmable bootstrapping) for CKKS. \cite{cryptoeprint:2024/1623} seems to subsume the other two, and it essentially incorporates an approximation of the function to evaluate into the \textsf{EvalMod} step. Note that this applies the function to the polynomial coefficients, rather than the slots, though. This seems less-than-desirable. \enote{More to learn here.}
+
+    \subsection{Bootstrapping with Roots of Unity}
+    \cite{cryptoeprint:2025/651} introduces a new technique for CKKS bootstrapping based on embedding $(\Z_q,+)$ into the complex roots of unity. This results in bootstrapping with lower multiplicative depth. This is asymptotically worse than the basic form of bootstrapping, and works best when the number of encoded slots is small (sparsely packed ciphertexts). The authors point out that it is parallelizable, and that with enough hardware, it can achieve the same (parallelized) complexity of traditional bootstrapping. Seems not yet fully-baked, but an interesting new direction.
+
+    \subsection{Bootstrapping via CGGI}
+    \cite{cryptoeprint:2021/691} proposes to accomplish CKKS bootstrapping by decomposing into many CGGI ciphertexts, bootstrapping them, and repacking the results into a single CKKS ciphertext using ring packing. This results in very low-depth bootstrapping, but also $\mathcal{O}(N^2)$ ring operations. However,~\cite{10609598} showed that this can be practical on dedicated hardware.
+
+    \subsection{SHIP}
+    \cite{cryptoeprint:2025/784} introduces a new low-depth bootstrapping technique. Unlike~\cite{cryptoeprint:2021/691}, there is no blow-up in complexity, and the technique remains highly parallelizable, with an overall cost of $\mathcal{O}(h\log(N/h)+N)$, where $h$ is the Hamming weight of the key.
+
+    SHIP is based on blind rotations (i.e., rotating a ciphertext by a
+    
+    \section{Parameters}
+    One parameter is how many levels of the \textsf{SF} decomposition to fuse. Another parameter is how to split $N/2$ into $n_1, n_2$. This is explored in~\cite{cryptoeprint:2020/1203}. They show that with double-hoisting, minimum complexity is achieved when $n_1=16n_2$, but we may want to explore tradeoffs on our own hardware.
+    
+    You need to pick your bootstrapping precision, which will determine the approximation degree of the modular reduction step. See, e.g.,~\cite{cryptoeprint:2021/572}.
+    
+    Another parameter is the sparse-ness of the secret key.
+    
+    Meta-BTS parameter.
+
+    \cite{cryptoeprint:2024/1379} gives optimal parameters for the CtS and StC steps, though this only seems to save a few bits.
+    
+    \section{Architecture-Specific Optimizations}
+    \cite{cryptoeprint:2021/508} notes that FHE operations have large memory requirements, and that memory bandwidth is frequently a bottleneck. They further note that most of the existing performance optimization techniques increase memory pressure. These optimizations include RNS representation~\cite{cryptoeprint:2016/510, cryptoeprint:2018/931}, rescaling and basis extension algorithms~\cite{cryptoeprint:2018/931}, the use of FFT-decomposition in bootstrapping~\cite{cryptoeprint:2018/1043,cryptoeprint:2018/1073}, and hybrid key-switching~\cite{cryptoeprint:2019/688}.
+    
+    This work focuses on ``memory-centric'' optimizations. It introduces a metric called ``amortized FHE-mult'', which is the average time to perform a multiplication, including the cost of bootstrapping, over a large number of multiplications.
+    
+    This work refers to ``slim bootstrapping''~\cite{cryptoeprint:2018/067}, which changes the order of the bootstrapping steps. However, that paper seems specific to FV/BGV, so I'm not sure how/if it really applies to CKKS.
+	
+    Definitely worth reading in more detail.
+    
+    \enote{also check out~\cite{decastro2021doesfullyhomomorphicencryption}}
+
+    \section{Also}
+    \cite{cryptoeprint:2024/767} describes how to adapt and optimize bootstrapping when using~\cite{cryptoeprint:2022/1298}, which uses CKKS for exact boolean operations.
+
+    \ifcompileasbook
+    \else
+        \printbibliography
+    \fi
+
+\end{document}

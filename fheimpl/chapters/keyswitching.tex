@@ -1,0 +1,38 @@
+% !TeX root = ../fheimpl.tex
+\documentclass[../fheimpl.tex]{subfiles}
+
+\begin{document}
+	\newif\ifksismain
+	\ifcompileasbook
+	\else
+		\hypersetup{pageanchor=false}
+		\title{Key Switching}
+		\ksismaintrue
+		\maketitle
+		\listoffixmes
+		\tableofcontents
+		\compileasbooktrue
+		\hypersetup{pageanchor=true}
+	\fi
+
+    \section{Introduction}
+    This article delves into all operations that manipulate an FHE ciphertext modulus, and focuses on the algorithms implemented in Liberate-FHE. In particular, it covers basis extension, rescaling, and key-switching. \Cref{sec:notation} describes the notation, and \Cref{sec:intuition} gives the intuition for the fundamentals of key-switching. \Cref{sec:basisext,sec:rescaling} describe two key operations required for the actual key-switching algorithm, and \Cref{sec:ks} describes the actual key-switching procedure.
+    
+    \section{Notation}
+    \label{sec:notation}
+    We represent $x\in \Z_q$ by its \emph{canonical representative} $[x]_q \in [\ceil{-q/2}, \floor{q/2})\subset\Z$. We also use the \emph{standard representative} $\abs{x}_q \in [0, q)\subset\Z$.
+    
+    Most homomorphic encryption implementation utilize the Chinese Remainder Theorem (CRT), also called the Residue Number System (RNS) to avoid confusion with other uses of the CRT in lattice cryptography. Let $q_0, \ldots, q_{k-1}$ be co-prime moduli, and let $Q_j=\prod_{i=0}^j q_i$. Define $Q:=Q_{k-1}$ and $Q_{-1}:=1$. We denote $Q_i^* = Q/q_i\in \Z$ and $\tilde{Q}_i=(Q_i^*)^{-1}  \in \Z_{q_i}$. In CRT/RNS, we identify $x\bmod Q$ with $(x_0, \ldots, x_{k-1})$ where $x_i\in\Z_{q_i}$. We can reconstruct $x=\abs{x}_Q$ as $\sum_{i=0}^{k-1}\abs{x_i}_{q_i}\cdot \tilde{Q}_i\cdot Q_i^* \bmod Q$. We call $\set{q_0, q_1,\ldots, q_{k-1}}$ the \emph{RNS basis} of $x$. By ``an element $x$ in basis $\mathcal{B}$'', we mean $x$ in RNS form with respect to the moduli contained in $\mathcal{B}$. By the Chinese Remainder Theorem (CRT), there is precisely one integer $x$ such that $x$ in basis $\mathcal{B}$ is $(x_0, x_1, \ldots, x_{k-1})$. 
+    
+    \subfile{keyswitching-sections/intuition}
+    \subfile{keyswitching-sections/basisconversion}
+    \subfile{keyswitching-sections/rescaling}
+    \subfile{keyswitching-sections/keyswitching}
+    \subfile{keyswitching-sections/cornamiimpl}
+    
+	\ifksismain
+		 \appendix
+		 \input{keyswitching-sections/appendices}
+		 \printbibliography
+	\fi
+\end{document}

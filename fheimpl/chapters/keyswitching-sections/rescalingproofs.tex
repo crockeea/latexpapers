@@ -1,0 +1,54 @@
+\section{Unification of Rescaling Notions}
+\label{sec:rescaleextras}
+
+Let $x\in \Z_{Q_\ell}$. \cref{sec:rescale-algs} gives three different definitions of rescaling $x$:
+\begin{enumerate}
+	\item $\mathrm{RS}(x)=\round{q_\ell^{-1}\cdot x} \bmod Q_{\ell-1}$ from~\cite{cryptoeprint:2016/421, cryptoeprint:2018/153, cryptoeprint:2018/1043, cryptoeprint:2020/1118}
+	\item $\mathrm{RS}(x)=q_\ell^{-1}\cdot (x-x_\ell)\bmod Q_{\ell-1}$ from~\cite{cryptoeprint:2018/931, cryptoeprint:2019/688}
+	\item $\mathrm{RS}(x) = \bracks*{\round*{\sum_{i=1}^k x_i\cdot\parens*{\tilde{q}_i\cdot\frac{t}{q_i}}}}_t$ from~\cref{sec:fastscaling}, which is adapted from~\cite{cryptoeprint:2018/117}
+\end{enumerate}
+
+In this section, we show that these three definitions are equivalent.
+
+\subsection{Equivalence of (1) and (2)}	
+\cite{cryptoeprint:2015/1134} describes why this process works. In short, we want to compute $\bracks*{\round*{\frac{1}{q_\ell}\cdot x}}_{Q_{\ell-1}}$ where $x\in \Z_{Q_\ell}$. Forget the final mod for a moment and just look at $\frac{1}{q_\ell}\cdot x$. Write $\frac{1}{q_\ell}\cdot x = \omega + \theta$ where $\omega\in\Z$ and $\theta \in [-1/2, 1/2)$. $x \equiv x_\ell\mod q_\ell$, so $\omega = \frac{x-x_\ell}{q_\ell}$ and $\theta = \frac{x_\ell}{q_\ell}$. Note that since the canonical representative $x_\ell=\bracks{x}_{q_\ell}$ is symmetric around 0, $\omega = \round*{\frac{1}{q_\ell}\cdot x}\in\Z$. Finally, 
+\[\bracks*{\round*{\frac{1}{q_\ell}\cdot x}}_{Q_{\ell-1}} = \bracks*{\frac{x-x_\ell}{q_\ell}}_{Q_{\ell-q}} =\bracks{q_\ell^{-1}\cdot(x-x_\ell)}_{Q_{\ell-q}}\]
+
+Now we extend this to $x = (x_1, x_2, \ldots, x_\ell)$ in RNS form:
+\begin{align}
+	\bracks*{\round*{\frac{1}{q_\ell}\cdot (x_1, x_2, \ldots, x_\ell)}}_{Q_{\ell-1}} = & \bracks*{\frac{(x_1-x_\ell, x_2-x_\ell, \ldots, x_\ell-x_\ell)}{q_\ell}}_{Q_{\ell-q}} \\
+	=& (q_\ell^{-1}\cdot(x_1-x_\ell), q_\ell^{-1}\cdot(x_x-x_\ell), \ldots, q_\ell^{-1}\cdot(x_{\ell-1}-x_\ell))\in Z_{Q_{\ell-q}}
+\end{align}	
+
+\subsection{Equivalence of (2) and (3)}
+
+In the context of rescaling, $q = Q_\ell$ and $t=Q_{\ell-1}$, so $t/q = 1 / q_\ell$. We rewrite the equation with these substitutions:
+
+\[\mathrm{RS}(x) = \bracks*{\round*{\sum_{i=1}^\ell x_i\cdot\parens*{\tilde{q}_i\cdot\frac{Q_{\ell-1}}{q_i}}}}_{Q_{\ell-1}}\]
+
+For simplicity, we will compute the output mod $Q_{\ell-1}$ in RNS form, so we really care about the rounded value mod $q_i$, $1\le i < \ell$. The $j^\text{th}$ component of $\mathrm{RS}(x)$ is
+\[\bracks*{\round*{\sum_{i=1}^\ell x_i\cdot\parens*{\tilde{q}_i\cdot\frac{Q_{\ell-1}}{q_i}}}}_{q_j}\]
+
+First, note that we can pull the first $\ell-1$ terms out of the rounding function because $q_i | Q_{\ell-1}$ for $1\le i \le \ell-1$. Thus we only need to compute the integral part of last term.
+
+\begin{align}
+	\round*{x_\ell\cdot\parens*{\tilde{q}_\ell\cdot\frac{Q_{\ell-1}}{q_\ell}}} = & x_\ell\cdot\parens{\tilde{q}_\ell\cdot Q_{\ell-1} -			 \bracks*{\tilde{q}_\ell\cdot Q_{\ell-1}}_{q_\ell}}/q_\ell \\
+	= & x_\ell\cdot\parens{\tilde{q}_\ell\cdot Q_{\ell-1} -	1}/q_\ell
+\end{align}
+
+Therefore, the $j^\text{th}$ component of $\mathrm{RS}(x)$ is
+\begin{align}
+	\bracks*{\parens*{\sum_{i=1}^{\ell-1} x_i\cdot\tilde{q}_i\cdot\frac{Q_{\ell-1}}{q_i}} + x_\ell\cdot\parens{\tilde{q}_\ell\cdot Q_{\ell-1} - 1}/q_\ell}_{q_j} & = \bracks*{x_j\cdot\tilde{q}_j\cdot\frac{Q_{\ell-1}}{q_j} + x_\ell\cdot\parens{\tilde{q}_\ell\cdot Q_{\ell-1} - 1}/q_\ell}_{q_j} \\
+	& = \bracks*{x_j\cdot (q_\ell^{-1} \bmod q_j) + x_\ell\cdot\parens{\tilde{q}_\ell\cdot Q_{\ell-1} - 1}/q_\ell}_{q_j} \\
+	& = \bracks*{x_j\cdot (q_\ell^{-1} \bmod q_j) + x_\ell\cdot(-q_\ell^{-1} \bmod q_j)}_{q_j} \label{eqn:magic} \\
+	& = \bracks*{(x_j-x_\ell)\cdot (q_\ell^{-1} \bmod q_j)}_{q_j}
+\end{align}
+
+where the \cref{eqn:magic} follows from the fact that $\tilde{q}_\ell\cdot Q_{\ell-1}$ is a multiple of $q_j$.
+
+\subsection{Comparison}
+We emphasize that~\cref{sec:fastscaling} is actually more general; in particular it works when $t \nmid q$.
+
+Formulation 2 requires one modular addition and one (scalar) modular multiplication per output RNS component. If using standard representatives, there is an addition comparison and addition.
+
+Assuming we precompute $\omega_{i,j}$ and $\theta_{i,j}$ for each output component $t_j$, Formulation 3 requires $\ell$ (scalar) modular multiplications and additions (ignoring the shared cost of computing $v$). Thus we should prefer formulation 2 when possible.

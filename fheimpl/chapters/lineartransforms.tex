@@ -1,0 +1,143 @@
+\documentclass[../fheimpl.tex]{subfiles}
+
+\title{Linear Transforms}
+\author{Eric Crockett}
+
+\begin{document}
+    \ifcompileasbook
+    \else
+	\maketitle
+	\listoffixmes
+    \fi
+	
+	This chapter discusses how to apply a public linear transform to the slots of an encrypted vector. For ring-dimension $N$, we are interested in $\frac{N}{2}\times\frac{N}{2}$ linear transformations. In the most general form, any (complex-) linear transform on $z\in \C^{N/2}$ can be written as $A\cdot z+B\cdot \overline{z}$ for $A,B\in\C^{\frac{N}{2}\times\frac{N}{2}}$. The techniques described here apply to all linear transforms; we explore specific optimizations for the linear transforms used in bootstrapping in~\cref{ch:bootstrapping}.
+	
+	\section{HELib Algorithms}
+	\label{sec:helibmatmulalgs}
+	\cite{cryptoeprint:2014/106} gave an efficient algorithm for matrix-vector multiplication based on representing the matrix as $N/2$ vectors corresponding to diagonals of the matrix. Specifically for a matrix $A$, define 
+	\[d_i = \parens{A_{0, i}, A_{1, i+1}, \ldots, A_{N/2-1, i-1}}\]
+	for $0\le i < \frac{N}{2}$, where the second index is computed mod $N/2$. With this representation of $A$, we can compute the matrix-vector product as
+	\[Av = \sum_{i=0}^{N/2} d_i\cdot (v \ll i)\]
+	This algorithm works for an arbitrary $A$; better algorithms are available for transforms with a special structure.
+	
+	In~\cite{cryptoeprint:2018/244}, the authors describe an improved algorithm for ``one-dimensional'' transforms by using a ``baby-step/giant-step'' approach. Let $g=\ceil*{\sqrt{N/2}}$ and $h=\ceil*{N/2/g}$. Then
+	\begin{align*}
+		Av &= \sum_{i=0}^{N/2} d_i\cdot (v \ll i) \\
+		   &= \sum_{j=0}^g\sum_{k=0}^h d_{j+gk}\cdot  (v \ll (j+gk)) \\
+		   &= \sum_{k=0}^h\parens*{\sum_{j=0}^g d'_{j+gk}\cdot (v \ll j)}\ll gk
+	\end{align*}
+	where $d'_i = d_i \gg gk$. This only requires $g+h = \mathcal{O}(\sqrt{N})$ rotations, rather than the $\mathcal{O}(N)$ rotations required by~\cite{cryptoeprint:2014/106}.
+	
+    \subsubsection{Hoisting}
+    Applying linear transforms involves rotating a given ciphertext many times. When we apply an automorphism $psi$, the output decrypts to $\psi(m)$ under the secret key $\psi(sk)$. As a result, after applying the automorphism, we do a key-switch to obtain a ciphertext that decrypts to $\psi(m)$ under $sk$. 
+	
+	If we're applying multiple automorphisms to the same input, we can improve the efficiency of this process by ``hoisting'' part of the key-switch above the application of the automorphism. \cite{cryptoeprint:2018/244} shows that the decomposition step and basis extension step in key-switching commute with the application of the automorphisms, so we can do the first half of key-switching \emph{once}, and then apply multiple automorphisms, and then finish the key switch on each rotated component. Note that this increases the number of automorphisms by the size of the decomposition, but applying an automorphism is much less expensive than the extra key-switches from the na\"ive approach.
+	
+	\cite{cryptoeprint:2020/1203} improves this further by modifying the rotation key-switch keys: instead of switching from $\phi(s)$ to $s$, they switch from $s$ to $\phi^{-1}(s)$. As a result, we can decompose once, and apply multiple key-switch keys. Instead of applying rotations to the decomposed ciphertexts, we instead apply the rotation to the \emph{output} of key-switching, meaning we still only require one automorphism per rotation, and one decomposition total.
+	
+	Finally, \cite{cryptoeprint:2020/1203} observed that the ModDown step of key-switching is also relatively expensive, and that it can be delayed as late as possible. The call the matrix-vector multiplication algorithm that uses this observation \emph{double-hoisting}, because it hoists the decomposition out of the inner loop \`{a} la~\cite{cryptoeprint:2018/244}, and it hoists the ModDown out of the inner loop as well. We note that the inner loop operations are now slightly more expensive since they operate on ring elements with extra components, but this is worth the reduce number of ModDowns. This also reduces bootstrapping error because the rounding error incurred in ModDown is only added once per inner loop.
+
+    \cite{cryptoeprint:2025/429} improves upon this even more by reducing the number of moduli that need in the ring elements when performing (i)NTTs. We do not describe this algorithm here.
+	
+    \begin{algorithm}
+		\caption{Three algorithms for matrix-vector multiplication. All algorithms are parameterized by $n_1, n_2$, where $N/2=n_1\cdot n_2$.}\label{alg:batchrotations}
+		\begin{algorithmic}[1]
+            \Procedure{BasicMatVecMul}{$ds$, $ct=(ct_0, ct_1)$}
+				\State $(a_0, b_0) \gets (ct_0, ct_1)$
+				\For{$j$ in range($1,n_1$)}
+                    \State $y \gets (ct \ll j)$
+                    \State $z \gets$ KS.modDown(KS.dotProd(KS.decompose($y[1]$), ksk$_{\phi_{j}(s)\rightarrow s}$))
+                    \State $(a_j, b_j) \gets z + (y[0], 0)$))
+				\EndFor
+				\State acc $\gets$ 0
+				\For{$k$ in range($n_2$)}
+                    \State $r\gets 0$
+                    \For{$j$ in range($n_1$)}
+                        \State $r \gets r + d'_{j+n_1\cdot k}\cdot (a_j, b_j)$
+                    \EndFor
+                    \State $t\gets (r\ll n_1\cdot k)$
+                    \State $u \gets$ KS.modDown(KS.dotProd(KS.decompose($t[1]$), ksk$_{\phi_{n_1\cdot k}(s)\rightarrow s}$))
+                    \State acc $\gets$ acc + $u + (t[0], 0)$
+				\EndFor
+				\State \Return acc
+            \EndProcedure
+			
+            \Procedure{HoistedMatVecMul}{$ds$, $ct=(ct_0, ct_1)$}
+				\State $xs \gets$ KS.decompose($ct_1$)
+				\State $(a_0, b_0) \gets (ct_0, ct_1)$
+				\For{$j$ in range($1,n_1$)}
+                    \State $ys \gets []$
+                    \For{$i$ in range(len($xs$))}
+                        \State $ys$.append($xs[i] \ll j$) 
+                    \EndFor
+                    \State $z \gets$ KS.modDown(KS.dotProd($ys$, ksk$_{\phi_{j}(s)\rightarrow s}$))
+                    \State $(a_j, b_j) \gets z + (ct_0 \ll j, 0)$
+				\EndFor
+				\State acc $\gets$ 0
+				\For{$k$ in range($n_2$)}
+                    \State $r\gets 0$
+                    \For{$j$ in range($n_1$)}
+                        \State $r \gets r + d'_{j+n_1\cdot k}\cdot (a_j, b_j)$
+                    \EndFor
+                    \State $t\gets (r\ll n_1\cdot k)$
+                    \State $u \gets$ KS.modDown(KS.dotProd(KS.decompose($t[1]$), ksk$_{\phi_{n_1\cdot k}(s)\rightarrow s}$))
+                    \State acc $\gets$ acc + $u + (t[0], 0)$
+				\EndFor
+				\State \Return acc
+            \EndProcedure
+			
+            \Procedure{ImprovedHoistedMatVecMul}{$ds$, $ct=(ct_0, ct_1)$}
+				\State $xs \gets$ KS.decompose($ct_1$)
+				\State $(a_0, b_0) \gets (ct_0, ct_1)$
+				\For{$j$ in range($1,n_1$)}
+                    \State $y \gets$ KS.modDown(KS.dotProd($xs$, ksk$_{s\rightarrow \phi^{-1}_{j}(s)}$))
+                    \State $z \gets y + (ct_0, 0)$
+                    \State $(a_j, b_j) \gets z\ll j$
+				\EndFor
+				\State acc $\gets$ 0
+				\For{$k$ in range($n_2$)}
+                    \State $r\gets 0$
+                    \For{$j$ in range($n_1$)}
+						\State $r \gets r +  d'_{j+n_1\cdot k}\cdot (a_j, b_j)$
+					\EndFor
+					\State $t \gets$ KS.modDown(KS.dotProd(KS.decompose($r[1]$), ksk$_{s \rightarrow \phi^{-1}_{n_1\cdot k}(s)}$))
+					\State acc $\gets$ acc + $((t+(r[0], 0))\ll n_1\cdot k)$
+				\EndFor
+				\State \Return acc
+            \EndProcedure
+			
+            \Procedure{DoubleHoistedMatVecMul}{$ds$, $ct=(ct_0, ct_1)$}
+                \State $xs \gets$ KS.decompose($ct_1$)
+                \State $(a_0, b_0) \gets (P\cdot ct_0, P\cdot ct_1)$
+                \For{$j$ in range($1, n_1$)}
+                    \State $(a_j, b_j) \gets$ KS.dotProd$(xs$, ksk$_{s\rightarrow \phi^{-1}_{j}(s)}) + (ct_0, 0)$
+                \EndFor
+                \State acc $\gets (0,0)$
+                \For{$k$ in range($n_2$)}
+                    \State $r\gets (0,0)$
+                    \For{$j$ in range($n_1$)}
+                        \State $r \gets r +  d'_{j+n_1\cdot k}\cdot (a_j, b_j)$
+                    \EndFor
+                    \State $r[1] \gets$ KS.modDown($r[1]$)
+                    \State $rs \gets$ KS.decompose($r[1]$)
+                    \State acc $\gets$ acc + $(r[0], 0) + $KS.dotProd($rs$, ksk$_{s \rightarrow \phi^{-1}_{n_1\cdot k}(s)}$)
+                \EndFor
+                \State acc $\gets$ KS.modDown(acc)
+                \State \Return acc
+            \EndProcedure
+		\end{algorithmic}
+    \end{algorithm}
+
+    \subsubsection{Ring Packing}
+    \cite{cryptoeprint:2023/1244} looks at ring packing, which they view as multiplying a plaintext matrix by an encrypted vector. This may be an efficient approach for \emph{unstructured} matrices, but it's not clear how it compares to simpler approaches when the matrix admits a decomposition (e.g., Cooley-Tukey).
+
+    \subsubsection{Batching}
+    \label{sec:la-batching}
+    \cite{cryptoeprint:2024/1284} talks about optimizing plaintext-matrix times ciphertext-matrix computations, and notes that this can be used to speed up batched matrix-vector multiplications as well. 
+
+    \ifcompileasbook
+    \else
+	\printbibliography
+    \fi
+	
+\end{document}

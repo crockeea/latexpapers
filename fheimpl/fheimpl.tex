@@ -1,0 +1,61 @@
+\documentclass[oneside]{book}
+
+\input{../headers/head.tex}
+% comment out to remove fixmes
+\fxsetup{status=draft}
+
+\usepackage{subfiles}
+
+\newif\ifcompileasbook
+
+\title{CKKS Implementation Notes}
+\author{Eric Crockett}
+\date{Last Updated \today}
+
+\begin{document}
+	\hypersetup{pageanchor=false}
+	\compileasbooktrue
+	\maketitle
+	\hypersetup{pageanchor=true}
+	\tableofcontents
+	
+	\chapter{Introduction}
+	This article delves into CKKS bootstrapping. In CKKS, we must \emph{rescale} a ciphertext after\footnote{Or before, if using~\cite{cryptoeprint:2020/1118}.} each multiplication. Rescaling removes a modulus (or equivalently, increments the level of the ciphertext), hence, if the computation is deep enough, we eventually run out of moduli, and can do no more multiplications. Bootstrapping is a process which effectively ``resets'' the ciphertext to a lower level, thereby enabling addition multiplications. 
+
+	\chapter{Basics}
+%	\cite{Harvey_2014} talks about using $[0,2q)$ for efficiency in FFTs.
+	\subfile{chapters/ckks}
+	
+	\chapter{Key Switching}
+	\subfile{chapters/keyswitching}
+	
+	\chapter{Linear Transformations}
+	\label{ch:lineartransforms}
+	\subfile{chapters/lineartransforms}
+	
+	\chapter{Polynomials}
+	\label{ch:polyeval}
+	\subfile{chapters/polyapprox}
+	\subfile{chapters/polyeval}
+	
+	\chapter{Bootstrapping}
+	\label{ch:bootstrapping}
+	\subfile{chapters/bootstrapping}
+
+        \chapter{Matrix Multiplication}
+        \subfile{chapters/matrixmul}
+	
+	\printbibliography 
+	
+	\appendix
+	\renewcommand{\thechapter}{\Alph{chapter}}
+	\chapter{KeySwitch Appendices}
+	\subfile{chapters/keyswitching-sections/appendices}
+
+        \chapter{FHE over the conjugate-invariant ring}
+        \subfile{chapters/conjugateinvariant}
+
+        \chapter{Modular Arithmetic}
+        \subfile{chapters/montgomery}
+
+\end{document}

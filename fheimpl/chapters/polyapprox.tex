@@ -1,0 +1,150 @@
+\documentclass[../fheimpl.tex]{subfiles}
+
+\title{Non-Polynomial Functions}
+\author{Eric Crockett}
+
+\begin{document}
+    \ifcompileasbook
+    \else
+    \maketitle
+    \listoffixmes
+    \fi
+    \label{ch:polyapprox}
+    
+    \section{Introduction}
+    CKKS natively supports evaluation of (multi-variable) polynomial functions. However, applications frequently require evaluating non-polynomial functions. Examples include the sigmoid function $\frac{1}{1+\exp(-x)}$, common in machine learning applications, and the modular reduction function, which is required in CKKS bootstrapping.
+    
+    Broadly, there are two ways to evaluate non-linear functions:
+    \begin{enumerate}
+        \item Use programmable bootstrapping. This option is primarily available with TFHE, though there has been work on programmable bootstrapping with CKKS~\cite{cryptoeprint:2024/1623}.
+        
+        \item Use a polynomial approximation of the non-linear function over some finite domain.
+    \end{enumerate}
+    
+    In this chapter, we explore techniques for the latter approach. Note that we could also consider approximating a high-degree polynomial with a lower-degree polynomial over some range, but for the purposes of this article, we will assume we are approximating a non-polynomial function. The result of approximating a non-polynomial function will be a polynomial, which can be evaluated using the techniques described in~\cref{ch:polyeval}.
+        
+    Note: there is some ambiguity about the word ``range'': in this chapter, we use \emph{range} to mean the set of \emph{input} values over which we need to approximate $f$, rather than the mathematical definition of range, which relates the set of possible outputs of a function. 
+    
+    \subsection{Notation}
+    Unless otherwise noted, 
+    \begin{itemize}
+        \item We wish to approximate a non-linear function $f(x)$,
+        \item $p(x)$ refers to a polynomial approximation of $f(x)$,
+        \item $d$ is the degree of $p(x)$, and
+        \item the approximation is valid over the range $[a,b]$.
+    \end{itemize}
+    
+    \section{Approximation Methods}
+    \label{sec:polyapprox}
+    There are many ways to create a polynomial function to a non-linear function; we examine a few below.
+    
+    
+    \subsection{Taylor Series}
+    A traditional way to approximate a function is with a (truncated) Taylor series. The Taylor series is a function of $f$'s derivatives at a point $a$: 
+    \[f(x)\approx \sum_{n=0}^\infty\frac{f^{(n)}(a)}{n!}(x-a)\]
+    
+    This approximation was used in the original CKKS bootstrapping paper~\cite{cryptoeprint:2018/153} to approximate $\sin(x)$.
+    However, this approximation is only good near $a$, and is in general not a good way to approximate a function over a range.
+    
+    
+    \subsection{Least-Squares Approximation}
+    This approximation aims to minimize the integral of the squared errors between a polynomial approximation and $f$ over a given range, i.e., it minimizes
+    \[\int_a^b (p(x)-f(x))^2\ dx.\] 
+    This results in small error on average, and is relatively cheap to compute. For example, this is a good approach when we are fitting a curve to data. In general, this is not what we're looking for in FHE algorithms when trying to approximate a non-linear function.
+    
+    
+    \subsection{Minimax Approximation}
+    For a fixed approximation degree $d$, a minimax polynomial approximation is a polynomial of degree at most $d$ such that minimize the maximum error, i.e., 
+    \[p(x) = \argmin_{q(x)\in\mathcal{P}_d}\max_{x\in[a,b]} |f(x)-q(x)|\]
+    where $\mathcal{P}_d$ is the set of all polynomials of degree $\le d$.
+    A minimax approximation guarantees a good quality of approximation at each point of the approximation interval.\cite[\S2.3]{cryptoeprint:2022/280}
+    
+    Note the difference from least-squares: minimax minimizes the maximum error, while least-squares minimizes the sum of the squared error. The Remez algorithm finds an exact, up to numerical precision, minimax polynomial.
+    
+    A minimax approximation is more expensive to compute than a least-squares approximation, but has better worse-case accuracy.	
+    
+    
+    \subsection{Chebyshev Polynomials}
+    Nominally, Chebyshev polynomials\footnote{We are only concerned with Chebyshev polynomials \emph{of the first kind}; Chebyshev polynomials of other kinds have uses in other areas of mathematics.} are related to cosine: $T_n(\cos(\theta)) = \cos(n\theta)$. However, if we let $x = \cos(\theta)$, we can simplify this description a bit:
+    \[T_n(x) = \cos(n\cos^{-1}(x)).\]
+    
+    Clearly $T_0(x) = 1$ and $T_1(x) = x$.
+    
+    Using a bit of calculus,
+    \[T_2(\cos(\theta)) = \cos(2\theta) = 2\cos^2(\theta) - 1,\] 
+    hence $T_2(x) = 2x^2-1$.
+    
+    More generally, $T_{n+1}(x) = 2xT_n(x) - T_{n-1}(x)$. The following relationships also hold\cite[\S4.1]{cryptoeprint:2018/1043}:
+    \begin{equation}
+        \label{eqn:chebyeven}
+        T_{2n}(x) = 2T_n(x)^2-1
+    \end{equation}
+    \begin{equation}
+        \label{eqn:chebyodd}
+        T_{2n+1}(x) = 2T_n(x)\cdot T_{n+1}(x)-x
+    \end{equation}
+    
+    Thus we can view $T_n(x)$ as a polynomials of degree $n$ in a variable $x$, having nothing to do with cosine.
+    
+    
+    \subsection{Chebyshev Interpolant}
+    For a target degree $d$, we can define a \emph{Chebyshev interpolant} as
+    \[p^{cheb}_d(x) = \sum_{i=0}^d c_kT_k(x),\]
+    where the coefficients $c_k$ are uniquely determined such that $p^{cheb}_d(x_j) = f(x_j)$ for the $d+1$ points $x_j=\cos\left(\frac{2j+1}{2(d+1)}\pi\right)$, $0\le j \le d$. In other words, just use Lagrange interpolation at the Chebyshev nodes. This is approach taken in~\cite{cryptoeprint:2018/1043}. That paper shows we can bound the error of the interpolant $p(x)$ as follows: let $p^*_d(x)$ be degree-$d$ the minimax approximation. Then
+    \[\length{f-p_d^{cheb}}_\infty \le \left(\frac{2}{\pi}\log{n}+2\right)\cdot \length{f-p^*_d}_\infty\]
+    
+    This is merely a bound relative to the minimax approximation, however; there are no absolute bounds on the error. Generally we don't care about having the approximation match exactly at a set of fixed points, which is one of the main goals of this approach.
+    
+    According to~\cite{cryptoeprint:2018/1043},
+    
+    \blockquote{The loss factor from replacing the minimax approximation with Chebyshev interpolant is almost negligible compared to the decreasing speed of the minimax error. Hence, Chebyshev interpolants provide a decent approximation the sine function in our bootstrapping algorithm.}
+    
+    However, it's not clear to me why we would settle for a sub-par approximation when we are computing it once, in-the-clear.
+    
+    
+    \subsection{Chebyshev Series}
+    Chebyshev polynomials provide an optimal way to minimize error over the entire approximation range. Like the Taylor series, a Chebyshev series is an infinite sum of Chebyshev polynomials that converges to the target function on the interval $[-1, 1]$:
+    \[f(x)\approx \sum_{n=0}^\infty c_nT_n(x)\]
+    It is a very good approximation of the minimax polynomial on that domain, and it is a (scaled) least-squares approximation. The truncated series is also a good approximation of the minimax polynomial, and is also a (degree-$d$, scaled) least-squares approximation.
+    
+    
+    \subsection{Computing an approximation with Chebyshev polynomials}
+    I found \href{https://www.embeddedrelated.com/showarticle/152.php}{this article} to be a good introduction to the topic, though it's not clear what kind of approximation it computes. 
+    
+    We seek coefficients ${c_k}_{k \in [0, d]}$ such that 
+    \[f(x) \approx \sum_{k=0}^{d} c_k\cdot T_k(u),\]
+    where $u = \frac{2x-a-b}{b-a}$ and $x = (b-a)\frac{u}{2}+\frac{a+b}{2}$.
+    
+    We can compute each $c_k$ as
+    \[c_k = A_k \cdot \frac{1}{N+1} \cdot \sum_{i=0}^{N} T_k(u_i)\cdot f(x_i),\]
+    where $u_i = \cos\left(\frac{\pi(2i-1)}{2(N+1)}\right)$ and $x_i = \frac{(b-a)\cdot u_i}{2}+\frac{a+b}{2}$.
+    
+    \enote{Expand}
+    
+    \subsection{Beyond Chebyshev}
+    \cite{cryptoeprint:2019/688} gives an approach which produces even better error analysis than Chebyshev. \enote{Investigate}
+    
+    \subsection{Variance-Minimizing Approximation}
+    \label{sec:varminapprox}
+    \cite{cryptoeprint:2020/1549} focuses on improving the bootstrapping operation, but gives some insight to the general case as well. For bootstrapping specifically, it aims to approximate modular reduction directly rather than a $\sin(x)$ approximation to modular reduction. It shows that this results in optimally-low depth. However, the way in which it approximates modular reduction is also different. Specifically, while Chebyshev approximations generally aim to minimize the maximum error over a target range,\cite{cryptoeprint:2020/1549} proposes to use the \emph{variance of error} as the optimization target.
+    
+    In alignment of the goal to produce an approximation that minimizes error, \cite{cryptoeprint:2020/1549} considers approximations in an arbitrary polynomial basis $\set{\phi_0(x), \phi_1(x), \ldots, \phi_n(x)}$. Let $\set{c_i}_{0\le i \le n}$ be the approximation coefficients in that basis. The paper accounts for the CKKS error that accrues when calculating $\phi_i(x)$, and emphasizes the importance of having small coefficients $c_i$ in any approximation to minimize the influence of this ``basis error''.
+    
+    The paper gives the full algorithm for constructing the approximation, though we do not give it here.
+	
+    \subsection{https://eprint.iacr.org/2025/429}
+    This paper primarily proposes using different functions for rounding without giving new approaches for (generic) polynomial approximation or evaluation. However, it says that it uses ``the multi-interval Remez algorithm'' proposed in~\cite{cryptoeprint:2020/1549}. It uses the sparseness of the functions it chooses to enable optimized evaluation, but this is not a generic technique.
+
+    \subsection{Caratheodory-Fejer Approximation}
+    See \href{https://www.youtube.com/watch?v=6JPwpTOcydM&list=PLnbmMskCVh1cCnWbmgxI0BM0UD2JHH9fz&index=6}{this} YouTube link at the 12:00 minute mark. It's supposed to be much faster than Remez's algorithm with the same accuracy (up to machine precision).
+
+    \section{Small Coefficients}
+    \label{sec:small-approx-coeffs}
+    One reason to favor approximations in the Chebyshev basis is that they tend to produce approximations with small coefficients (relative to the Chebyshev basis). As pointed out in, e.g., ~\cite{cryptoeprint:2021/572}, when the coefficients of the approximation are large, the basis must be computed to a higher precision to ensure the stability of the computation, since errors in the basis elements are amplified by large coefficients.
+	
+    \ifcompileasbook
+    \else
+    \printbibliography
+    \fi
+
+\end{document}

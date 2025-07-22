@@ -1,0 +1,145 @@
+\documentclass[../fheimpl.tex]{subfiles}
+
+\title{Montgomery Arithmetic}
+\author{Eric Crockett}
+
+\begin{document}
+\ifcompileasbook
+\else
+\maketitle
+\listoffixmes
+\fi
+
+\section{Montgomery Arithmetic}
+The method by which an implementation performs modular arithmetic is orthogonal to the details of FHE, but we explain the details here.
+
+First, let $N$ be an (odd) modulus, and $R=2^k>N$. Since $N$ is odd and $R$ is a power of two, $\gcd(R,N)=1$.
+
+\begin{algorithm}
+    \caption{Montgomery Reduction}\label{alg:mont_redc_simple}
+    \begin{algorithmic}[1]
+        \Procedure{MontRedc}{$T$, $N'$}
+            \State $m\gets ((T\bmod R)\cdot N')\bmod R$
+            \State $t\gets (T+m\cdot N)/R$
+            \State \Return $t$
+        \EndProcedure
+    \end{algorithmic}
+\end{algorithm}
+
+We will need to calculate $N'=-N^{-1} \bmod R$. While this can be calculated directly, you may see a different formula for $N'$, namely
+\[N' = \frac{R\cdot (R^{-1}\bmod N) - 1}{N}\]
+
+\begin{lemma}
+	$-N^{-1} \bmod R = \frac{R\cdot (R^{-1}\bmod N) - 1}{N}$
+\end{lemma}
+\begin{proof}
+	By definition, $R\cdot (R^{-1}\bmod N) \equiv 1\bmod N$, hence $R\cdot (R^{-1}\bmod N) = 1 + k\cdot N$ over the integers. Solving for $k$, we find $k=\frac{R\cdot (R^{-1}\bmod N) - 1}{N}$. Hence we aim to show that $k=-N^{-1} \bmod R$. 
+	
+	Look at $R\cdot (R^{-1}\bmod N) = 1 + k\cdot N$. Mod $R$, this becomes $0\equiv 1+k\cdot N\bmod R$, hence $k\equiv -N^{-1}\bmod R$, as desired.
+\end{proof}
+
+\subsection{IO Bounds}
+When $T\in[0, R\cdot N]$, \textsf{MontRedc} ouptuts a value in $[0, 2N)$: $m\in[0, R)$, so $T+m\cdot N\in [0, 2R\cdot N)$.
+When $T\in[-R\cdot N, R\cdot N]$, $T+m\cdot N\in [-RN, 2R\cdot N)$, hence the output of \textsf{MontRedc} is $\in [-N, 2N)$.
+
+\subsection{Montgomery Multiplication}
+The input to Montgomery reduction is usually a product of two values. This section discusses how to implement that multiplication.
+
+\subsubsection{Multiplication with large-words}
+Let $k$ be the (native) word size, in bits, and let $x_1, x_2$ be $k$-bit signed values. The Liberate C++ code uses unsigned 128-bit words to do the arithmetic. 
+
+\begin{minted}[linenos, breaklines]{cpp}
+inline int64_t mont_mult_scalar(int64_t x1, int64_t x2, uint64_t N, uint64_t N_prime) {
+  const uint128_t x = static_cast<uint128_t>(x1) * static_cast<uint128_t>(x2);
+  const uint64_t m = (x * N_prime) & fb_mask;
+  const uint128_t mN = static_cast<uint128_t>(m) * static_cast<uint128_t>(N);
+  return static_cast<int64_t>((x + mN) >> nbits);
+}
+\end{minted}
+When $x_1$ and $x_2$ are both positive, this is a straightforward implementation of~\cref{alg:mont_redc_simple}. However, when (WLOG) $x_1<0$, this implementation deserves special scrutiny. The expected output of~\cref{alg:mont_redc_simple} on input $x_1\cdot x_2$ is $y=\frac{x_1\cdot x_2+m\cdot N}{R}$. If we cast $x_1$ to a sign-extended 128-bit unsigned value\footnote{There are two possible ways for this cast to occur. The first is \mintinline{cpp}{static_cast<uint128_t>(static_cast<int128_t>(a))}, i.e., first sign-extend to a 128-bit signed value, then treat the bits as an unsigned 128-bit value. This is the conversion required for correctness, as desribed below. Another possible cast is \mintinline{cpp}{static_cast<uint128_t>(static_cast<uint64_t>(a))}, which does \emph{not} sign-extend the input when converting to a 128-bit value. The output on negative $a$ is $a+2^{64}$ rather than $2^{128}$, and it's not difficult to see that this produces an incorrect output. It seems that the C++ standard allows a compiler to use either method, hence we suggest that the code as-written is ambiguous and should include an explicit \mintinline{cpp}{static_cast<int128_t>(a)} for clarity and consistency across platforms.} we actually output $\frac{x_1'\cdot x_2+m'\cdot N}{R}$, where $x_1'=x_1+2^{128}$ and $m' = \abs{a\cdot b\cdot N'}\bmod R$.
+
+First, we prove that $m'=m$.
+\begin{proof}
+    \[(x_1+2^{128})\cdot x_2\cdot N'\bmod R = x_1\cdot x_2\cdot N' + 2^{128}\cdot x_2\cdot N'\bmod R = m,\]
+    since $R$ is a power of two much smaller than $2^{128}$.
+\end{proof}
+
+Clearly, $mN$ is correct, so we only need to consider $\frac{x_1'\cdot x_2+m\cdot N}{R}$:
+\begin{align}
+    \frac{x_1'\cdot x_2+m\cdot N}{R} &= \frac{(x_1 +2^{128})\cdot x_2+m\cdot N}{R} \\
+    &= \frac{x_1 \cdot x_2+m\cdot N}{R} + \frac{2^{128}x_2}{R} \\
+    &= y + 2^{66}x_2
+\end{align}
+But we only use the lower 64 bits of the output, hence the $2^{66}x_2$ is discarded, and we obtain the desired output.
+
+\subsubsection{Multiplication with native words}
+Not all platforms have support for a double-word, but we can simulate it with a more complex algorithm; see~\cref{alg:mont_redc}. Let $k$ be the native word size in bits, and $j = k/2$. We perform multiplication of two unsigned $k$-bit numbers $a$ and $b$ by splitting them into two $j$-bit pieces: $a=2^{j}\cdot a_h + a_\ell$ and $b=2^{j}\cdot b_h+b_\ell$. We represent all four of these pieces as (signed) $k$-bit numbers, then multiply the pieces appropriately to get the three $k$-bit components of the result: $c=2^{k}\cdot a_h\cdot b_h + 2^{j}\cdot(a_h\cdot b_\ell + a_\ell\cdot b_h) + a_\ell\cdot b_\ell$. 
+
+\begin{algorithm}
+	\caption{Montgomery Reduction in Liberate for $k=64$}\label{alg:mont_redc}
+	\begin{algorithmic}[1]
+		\State import numpy as np
+		\State nbits $\gets$ 62
+		\State $R \gets 1\ll$ nbits
+		\State half\_nbits $\gets$ 31
+		\State fb\_mask $\gets$ np.int64((1 $\ll$ nbits) - 1)
+		\State lb\_mask $\gets$ np.int64((1 $\ll$ half\_nbits) - 1)
+		\State k $\gets$ $-$inverse\_mod$(N, R)$
+		
+		\Procedure{PartitionInt}{$x$}
+        \Comment{Outputs $(x_\ell, x_h)$ such that $x=2^{32}x_h+x_\ell$}
+		\State \Return $x\ \&\ \mathrm{lb\_mask}$, $x \gg \mathrm{half\_nbits}$
+		\EndProcedure
+		
+		\State $N_\ell$, $N_h$ $\gets$ PartitionInt(N)
+		\State $k_\ell$, $k_h$ $\gets$ PartitionInt(k)
+		
+		\Procedure{MontRedc}{$a$, $b$}
+		\State \Comment Compute $T=a\cdot b=2^{64}\alpha + 2^{32}\beta + \gamma$
+		\State $a_\ell$, $a_h$ $\gets$ PartitionInt($a$)
+		\State $b_\ell$, $b_h$ $\gets$ PartitionInt($b$)
+		\State $\alpha \gets a_h\cdot b_h$
+		\State $\beta \gets a_h\cdot b_\ell + a_\ell\cdot b_h$
+		\State $\gamma \gets a_\ell\cdot b_\ell$
+		
+		\State \Comment Compute $m=T\cdot k \bmod R$
+		\State $\gamma_\ell$, $\gamma_h$ $\gets$ PartitionInt($\gamma$)
+		\State $\beta_\ell$, $\beta_h$ $\gets$ PartitionInt($\beta$)
+		\State $u \gets \gamma_\ell\cdot k_h+(\gamma_h+\beta_\ell)\cdot k_\ell$
+        \Comment{$m\bmod 2^{64}=2^{32}u+\gamma_\ell\cdot k_\ell$}
+		\State $m \gets ((u \ll \mathrm{half\_nbits})+\gamma_\ell\cdot k_\ell)\ \&\ \mathrm{fb\_mask}$
+		
+		\State \Comment Compute $t = (T+m\cdot N) / R$
+		\State $t_\ell$, $t_h$ $\gets$ PartitionInt($t$)
+		\State $tNb \gets t_h\cdot N_\ell + s_\ell\cdot N_h$
+		\Comment Middle word of $t\cdot N$
+		\State $tNb_\ell$, $tNb_h$ $\gets$ PartitionInt($tNb$)
+		\State carry $\gets (\gamma + t_\ell\cdot N_\ell) \gg \mathrm{half\_nbits}$
+		\State carry $\gets (\mathrm{carry} + \beta_\ell + tNb_\ell) \gg \mathrm{half\_nbits}$
+		\State $t\gets \alpha+\beta_h+tNb_h+\mathrm{carry}+t_h\cdot N_h$
+		\State \Return $t$
+		\EndProcedure
+	\end{algorithmic}
+\end{algorithm}
+
+Unlike the C++ code from the previous section,~\cref{alg:mont_redc} simulates signed large-word arithmetic. This follows from the correctness of \textsf{ParitionInt} on all inputs.
+
+We are also interested in what happens on negative inputs. First, we sketch a proof that the algorithm is correct on negative inputs (though the output range is different). First, we assume that the implementation language uses sign extension for right shifts. This means that the high word output of \textsf{PartitionInt} will have 33 1s in the top bits, followed by 31 bits of signal in the low bits. However, the invariant for \textsf{PartitionInt}(x) still holds: $x=2^{31}\cdot x_h + x_\ell$. This means that the product of $a$ and $b$ also holds: $a\cdot b=2^{62}\cdot \alpha+2^{31}\cdot\beta + \gamma$. 	 
+Next, we note that the two's-complement representation of integers means that $T \bmod R = T\ \&\ \mathrm{fb\_mask}$, whether $T$ is positive or negative. In short, this means that~\cref{alg:mont_redc} does something meaningful on negative inputs. 
+
+\subsection{Constraints}
+The primary constraint is that the input to Montgomery reduction should be bounded by $R\cdot N$. Typically, we want bounds that would allow us to chain multiple products together without conditional subtractions. It's typically convenient to allow negative values as inputs to Montgomery reduction, so we consider the input range $[-R\cdot N, R\cdot N]$. As noted above, the output in is in the range $[-N, 2N)$. The product of two such values is in the range $(-2N^2, 4N^2)$ Since we need this to be a subset of $[-R\cdot N, R\cdot N]$, we need $R>4N$. This is the case with Liberate parameters: they chose their large primes to be a hair under 60 bits, and $R=2^{62}$, hence reduction to $[-N,2N)$ suffices for the multiplication inputs.
+
+Next we consider constraints on $R$ itself. Assume the native word size has $k$ bits. Since Montgomery reduction outputs values in $[-N, 2N)$, we need $R\le2^{k-1}$ to account for the sign bit. When using native-word multiplication, we further require $R\le 2^{k-2}$. To see why, consider $k=64$, and $R=2^{63}$. In \textsf{PartitionInt}, one output will necessarily be 31 bits, and one will be 32 bits; without loss of generality, assume the high word is 32 bits. Then in the computation of $\alpha$ in~\cref{alg:mont_redc}, we are multiplying two 32-bit integers, which may require up to 64 bits to represent. However, we are using signed 64-bit numbers, so we only have 63 bits available. As a result, $R=2^{63}$ does not work for this case.
+Another way to see this limit is that (under the setting above), both terms of $\beta$ are up to 63 bits, but their sum may require 64 bits to represent. Again, this means that $R<2^{63}$, or in general, $R\le 2^{k-2}$.
+
+% This means we could maintain a centered representation (with double range) with one conditional subtraction. Note this is slightly \emph{worse} than the standard $[0, 2N)$ range, since we can maintain that expanded range with \emph{no} conditional subtractions.
+
+% Keeping track of output ranges is tedious in the extreme; I strongly recommend that an implementation consistently reduces to the standard representative unless you can are absolutely sure that not doing so will still produce a valid result.
+    
+    \ifcompileasbook
+    \else
+    \printbibliography
+    \fi
+	
+\end{document}

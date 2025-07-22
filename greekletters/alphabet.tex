@@ -1,0 +1,57 @@
+\documentclass{article}
+\usepackage{amsmath,amsthm}
+\usepackage{graphicx}
+\usepackage{float}  % Add this to use the H specifier
+\usepackage[margin=0.3in]{geometry}
+%\usepackage{showframe}
+
+\newcommand{\gl}[1]{\scalebox{5.5}{\ensuremath{#1}}}
+\newcommand{\bs}[1]{{\LARGE \textbf{\textbackslash}#1}}
+
+\begin{document}
+	\begin{center}
+		\scalebox{4.5}{The \LaTeX\ Greek Alphabet}
+	\end{center}
+	\setlength{\tabcolsep}{20pt}
+	\begin{table}[H]
+		\centering
+		\begin{tabular}{cccc}
+			\gl\alpha & \gl\beta & \gl{\Gamma\gamma} & \gl{\Delta\delta} \\
+			&&&\\[-6pt]
+			\bs{alpha} & \bs{beta}  & \bs{Gamma} & \bs{Delta} \\
+			& & \bs{gamma} & \bs{delta} \\
+			&&&\\
+			&&&\\
+			\gl{\epsilon\varepsilon} & \gl\zeta & \gl\eta & \gl{\Theta\theta\vartheta} \\
+			&&&\\[-6pt]
+			\bs{epsilon} & \bs{zeta} & \bs{eta} & \bs{Theta} \\
+			\bs{varepsilon} & & & \bs{theta} \\
+			& & & \bs{vartheta} \\
+			&&&\\
+			\gl\iota & \gl\kappa & \gl{\Lambda\lambda} & \gl\mu \\
+			&&&\\[-6pt]
+			\bs{iota} & \bs{kappa} & \bs{Lambda} & \bs{mu} \\
+			& & \bs{lambda} &  \\
+			&&&\\
+			&&&\\
+			\gl\nu & \gl{\Xi\xi} & \raisebox{1.4em}[0pt][0pt]{\LARGE(omicron)} & \gl{\Pi\pi\varpi} \\
+			&&&\\[-6pt]
+			\bs{nu} & \bs{Xi} &  & \bs{Pi} \\
+			& \bs{xi} & & \bs{pi} \\
+			& & & \bs{varphi} \\
+			&&&\\
+			\gl{\rho\varrho} & \gl{\Sigma\sigma\varsigma} & \gl\tau & \gl{\Upsilon\upsilon} \\
+			&&&\\[-6pt]
+			\bs{rho} & \bs{Sigma} & \bs{tau} & \bs{Upsilon} \\
+			\bs{varrho} & \bs{sigma} & & \bs{upsilon} \\
+			& \bs{varsigma} & & \\
+			&&&\\
+			\gl{\Phi\phi\varphi} & \gl\chi & \gl{\Psi\psi} & \gl{\Omega\omega} \\
+			&&&\\[-6pt]
+			\bs{Phi} & \bs{chi} & \bs{Psi} & \bs{Omega} \\
+			\bs{phi} &  & \bs{psi} & \bs{omega} \\
+			\bs{varphi} & & & \\
+		\end{tabular}
+	\end{table}
+
+\end{document}

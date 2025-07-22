@@ -1,0 +1,10 @@
+**/build
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.log
+*.lox
+*.out
+*.xml
+*.synctex.gz

@@ -1,0 +1,91 @@
+\documentclass[../keyswitching.tex]{subfiles}
+
+\title{KeySwitch Intuition}
+\author{Eric Crockett}
+\begin{document}
+	\ifcompileasbook
+	\else
+	\maketitle
+	\listoffixmes
+	\fi
+
+\section{Intuition}
+\label{sec:intuition}
+This section describes the intuition for key switching, but does \emph{not} accurately describe the actual key switching algorithm, which we leave to later sections.
+Key switching is a technique for converting a ciphertext encrypted under a key $s_1$ into a ciphertext encrypted under some other key $s_2$, originally described in~\cite{cryptoeprint:2011/344}. It is primarily used in \emph{relinearization} and \emph{rotations}.
+
+\subsection{Key-Switch Key Generation}
+Roughly, the key-switching key $ksk$ is an LWE ciphertext encrypting $s_1$ under $s_2$:
+\[ksk = (-a\cdot s_2 + s_1 + e, a)\]
+where $a$ is random and $e$ is drawn from the LWE error distribution.
+
+\subsection{Key-Switching for Quadratic Ciphertexts (Relinearization)}
+The result of multiplying two linear ciphertexts is a quadratic (i.e., three-term) ciphertext $(c_0, c_1, c_2)$ such that $c_0 + c_1\cdot s + c_2\cdot s^2 \approx m$. To prevent exponential\footnote{in the depth of the circuit} growth in the ciphertext size, we can apply key-switching from the key $s_1=s^2$ to the key $s_2=s$, a process called \emph{relinearization}.
+
+Relinearization outputs a new (linear\footnote{in the secret key}) ciphertext 
+\[ct' = (c_0, c_1) + c_2\cdot ksk = (c_0'=c_0 + c_2\cdot(-a\cdot s + s^2 + e), c_1'=c_1 + c_2\cdot a).\] We can verify that $ct'$ decrypts to $m$ under $s$:
+\begin{align*}
+	c_0' + c_1'\cdot s &= (c_0 + c_2\cdot(-a\cdot s + s^2 + e)) + (c_1 + c_2\cdot a)\cdot s \\
+	&= c_0 - c_2\cdot a\cdot s + c_2\cdot s^2 + c_2\cdot e + c_1\cdot s + c_2\cdot a\cdot s \\
+	&= c_0 + c_1\cdot s + c_2\cdot s^2 + c_2\cdot e
+\end{align*}
+Note that this is the same as decrypting the original ciphertext under $s$, plus an error term $c_2\cdot e$.
+
+\subsection{Key-Switching for Linear Ciphertexts (Rotations)}
+Given a ciphertext $ct$ encrypting a message $m$ under a key $s$, there is a CKKS operation which rotates the ``slots'' of a message cyclically by $i$ places. As described in~\cite[Section 2.2]{cryptoeprint:2012/099}, this is achieved by evaluating the polynomial $f(X)$ at $X^j$ for some $j(i)$. The exact description of Galois automorphisms is beyond the scope of this paper. Let $\kappa_j$ denote this transformation. Let $ct^{(j)}$, $m^{(j)}$, and $s^{(j)}$ be the result of applying $\kappa_j$ to $ct$, $m$, and $s$, respectively. The rotation operation produces $ct^{(j)}$, which encrypts $m^{(j)}$ under $s^{(j)}$. We seek to use key-switching to obtain an encryption of $m^{(j)}$ under $s$.
+
+Given a linear ciphertext $(c_0^{(j)}, c_1^{(j)})$ satisfying $c_0^{(j)} + c_1^{(j)}\cdot s^{(j)} \approx m^{(j)}$, we can construct a new ciphertext $(c_0', c_1')$ satisfying $c_0' + c_1'\cdot s \approx m^{(j)}$ by constructing a temporary ciphertext $t=(c_0^{(j)}, 0, c_1^{(j)})$, and then applying the relinearization procedure as described above, which outputs the ciphertext
+\[ct' = (c_0^{(j)}, 0) + c_1^{(j)}\cdot ksk = (c_0'=c_0^{(j)} + c_1^{(j)}\cdot(-a\cdot s + s^{(j)} + e), c_1'=c_1^{(j)}\cdot a).\]
+We can verify that $ct'$ decrypts to $m$ under $s$:
+\begin{align*}
+	c_0' + c_1'\cdot s &= (c_0^{(j)} + c_1^{(j)}\cdot(-a\cdot s + s^{(j)} + e)) + c_1^{(j)}\cdot a\cdot s \\
+	&= c_0^{(j)} - c_1^{(j)}\cdot a\cdot s + c_1^{(j)}\cdot s^{(j)} + c_1^{(j)}\cdot e + c_1^{(j)}\cdot a\cdot s \\
+	&= c_0^{(j)} + c_1^{(j)}\cdot s^{(j)} + c_1^{(j)}\cdot e
+\end{align*}
+Note that this is the same as decrypting the original ciphertext under $s^{(j)}$, plus an error term $c_1^{(j)}\cdot e$. See~\cite[Appendix B]{cryptoeprint:2012/099} for more details.
+
+\subsection{Controlling Noise Growth}
+\label{sec:ksnoisecontrol}
+The problem with the intuition above comes down to the additional error term. Informally, error terms have small coefficients, while $c_2$ is an arbitrary ring element mod $Q$, hence it has coefficients in $[0,Q)$. As a result, $c_2\cdot e$ (or $c_1^{(j)}\cdot e$ for rotations) does \emph{not} have small coefficients. This results in fast noise growth, which limits the number of homomorphic operations that can be performed before the message is lost. As a result, we need a way to apply the key-switching procedure \emph{without} incurring the large noise growth. The solution is to ``decompose'' $c_2$ into several ``small'' pieces, which will reduce the final additional error. 
+
+\subsubsection{Base-$b$ Decomposition}
+Traditionally, the approach was to decompose $c_2$ with respect to some base (radix) $b$; i.e. write $c_2 = \sum_{i=0}^t c_{2,i}\cdot b^i$ where $t=\ceil{\log_b{Q}}$ and $c_{2,i}$ has coefficients in $[0,b)$. Let $\mathrm{Decompose}(c_2) = \set{c_{2,i}}_{0\le i\le t}$. Then we make a corresponding series of key-switch keys: rather than encrypting $s_1$, we instead encrypt \emph{powers} of $s_1$, i.e., $\set{b^i\cdot s_1}_{0\le i \le t}$. Let $\mathrm{Power}(s)=\set{s\cdot b^i}_{0\le i\le t}$, and note that $\inner{\mathrm{Decompose}(c_2), \mathrm{Power}(s)} = c_2\cdot s$. In the encrypted domain, the key feature is that the error term of each key-switch key is \emph{not} scaled up by the same power. Let $ksk_i$ denote the encryption of $b^i\cdot s_1$, and let $ksks$ be the set $\set{ksk_i}_{0\le i\le t}$. Now, instead of computing $c_2\cdot ksk$, we compute $\inner{\mathrm{Decompose}(c_2), ksks}$. Now we can see that this combination of operations allows us to compute $c_2\cdot ksk$, but with a smaller error:
+
+\begin{align*}
+	\inner{\mathrm{Decompose}(c_2), ksks} &= \inner{\set{c_{2,i}}_{0\le i\le t}, \set{ksk_i}_{0\le i\le t}} \\
+	&= \sum_{i=0}^t c_{2,i}\cdot ksk_i \\
+	&= \sum_{i=0}^t \parens*{c_{2,i}\cdot({-a_i}\cdot s + b^i\cdot s^2 + e_i),\ c_{2,i}\cdot a_i} \\
+	&= \parens*{-s\cdot \sum_{i=0}^t \parens*{c_{2,i}\cdot a_i} + s^2\cdot \sum_{i=0}^t \parens*{c_{2,i}\cdot b^i} + \sum_{i=0}^t c_{2,i}\cdot e_i,\ \sum_{i=0}^t c_{2,i}\cdot a_i} \\
+	&= \parens*{-s\cdot \sum_{i=0}^t \parens*{c_{2,i}\cdot a_i} + s^2\cdot c_2 + \sum_{i=0}^t c_{2,i}\cdot e_i,\ \sum_{i=0}^t c_{2,i}\cdot a_i}
+\end{align*}
+
+This is roughly an encryption of $c_{2}\cdot s^2$, but the error incurred from key switching is only $\sum_{i=0}^t c_{2,i}\cdot e_i$, which has coefficients like $\ceil{\log_b{Q}}\cdot b\cdot \abs{e}$ compared to $e\cdot c_2$, with coefficients like $Q\cdot \abs{e}$.
+
+The base-$b$ decomposition is natural, especially when using a BigNum implementation. One downside to this approach is that instead of needing a single key-switching key, we now need $t=\ceil{\log_b{Q}}$ for some small $b$, which dramatically increases the cost of key switching.
+
+\subsubsection{CRT Decomposition}
+When using RNS representation for ring elements, the base-$b$ decomposition requires a CRT reconstruction in order to extract the base-$b$ digits. \cite{cryptoeprint:2016/510} introduced a new mechanism for decomposition based on the CRT structure of the modulus $Q$. Per the CRT reconstruction formula, we can write
+\[x = \sum_{i=0}^{k-1}\abs{x}_{q_i}\cdot (\tilde{Q}_i\cdot Q_i^*).\]
+
+We can use this instead of the base-$b$ decomposition because the coefficients of $\abs{x}_{q_i}$ are in $[0, q_i)$.\footnote{\cite{cryptoeprint:2019/688} uses a different decomposition that requires multiplying each decomposed input by a scalar. The decomposition above avoids scaling the decomposed input. \cite{cryptoeprint:2020/1203} describes the optimization given here.} If each $q_i$ is roughly $\nu$ bits, then this yields the same noise growth as a radix-$2^\nu$ decomposition. In practice, each key-switch key encrypts $\tilde{Q}_i\cdot Q_i^*\cdot s_1$, and the decomposition of the input is free.
+
+\subsubsection{Special Primes}
+\label{sec:ks-special-modulus}
+\cite{cryptoeprint:2012/099} introduced the concept of artificially raising the modulus during key-switching to control noise rather than a base-$b$ decomposition. The intuition behind this approach is to pick a large modulus $P$ and set the key-switch key to be an encryption of $P\cdot s_1$. In the basic relinearization operation described above, relinearization outputs $(c_0, c_1) + c_2\cdot ksk$. When using a special prime, we output $ct' = (c_0, c_1) + \round*{\frac{c_2}{P}\cdot ksk'}$, where $ksk'$ is an encryption of $P\cdot s$. We can verify that $ct'$ decrypts to $m$ under $s$:
+\begin{align*}
+	c_0' + c_1'\cdot s &= (c_0 + \round*{\frac{c_2}{P}\cdot(-a\cdot s + P\cdot s^2 + e)}) + (c_1 + \round*{\frac{c_2}{P}\cdot a})\cdot s \\
+	&= c_0 + c_2\cdot s^2 + \round*{-\frac{c_2}{P}\cdot a\cdot s + \frac{c_2}{P}\cdot e} + c_1\cdot s + \round*{\frac{c_2}{P}\cdot a\cdot s} \\
+	&= c_0 + c_2\cdot s^2 + \round*{-\frac{c_2}{P}\cdot a\cdot s} + \round*{\frac{c_2}{P}\cdot e} + c_1\cdot s + \round*{\frac{c_2}{P}\cdot a\cdot s} + e_\mathrm{round} \\
+	&= c_0 + c_1\cdot s + c_2\cdot s^2 + \round*{\frac{c_2}{P}\cdot e} + e_\mathrm{round}
+\end{align*}
+Note that this is the same as decrypting the original ciphertext under $s$, plus an error term $\round*{\frac{c_2}{P}\cdot e} + e_\mathrm{round}$. The coefficients of $c_2$ are independent of $P$, hence by making $P$ larger, we can reduce the affect of that term. Note that $e_\mathrm{round}$ is very small, with coefficients in $[-1/2, 1/2)$. 
+
+\subsubsection{Hybrid Key-Switching}
+\cite{cryptoeprint:2012/099} points out that, in order to minimize the noise incurred during key-switching with the special-modulus approach, we need $P > Q$, since the coefficients of $c_2$ are in $[0,Q)$. For a fixed number of levels, this requires doubling the ring dimension, which has a super-linear affect on performance. The authors note that we don't have to choose between expensive key-switching (via the base-$b$ decomposition) and low utility (via the use of a special modulus): we can instead combine the decomposition and special modulus approaches to get a fine-grained tradeoff between the downsides of both approaches. Specifically, we use base-$B$ decomposition (for some largish $B$), and then use a special modulus $P > B$ to reduce the noise incurred by using a large radix. The large radix significantly reduces the cost of key-switching (and the size of the key-switching keys) relative to radix-$b$, and using $P\approx B$ yields much more utility than $P\approx Q$. Note that this extends to the CRT decomposition approach in a straightforward fashion: one might consider $q_i$ to be a ``large'' radix anyway, but we can make it even larger by grouping multiple $q_i$s together. This directly leads to the algorithms used in practice today.
+
+\ifcompileasbook
+\else
+\printbibliography
+\fi
+
+\end{document}

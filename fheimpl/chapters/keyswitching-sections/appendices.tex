@@ -1,0 +1,27 @@
+\input{chapters/keyswitching-sections/rescalingproofs}
+
+\section{Key Switching Notes}
+\subsection{Generating Keys}
+To generate a key-switch key for switching from key $s_1$ to key $s_2$:
+\begin{enumerate}
+	\item Generate $a^{(i)} \leftarrow U(R_{PQ})$ for $0\le i < \beta$
+	\item Generate $e^{(i)} \leftarrow \chi$ for $0\le i < \beta$
+	\item Compute $\mathrm{swk}^{(i)} = (b^{(i)}, a^{(i)})\in R^2_{PQ}$, where $b^{(i)} = -a^{(i)}\cdot s_2 + P\cdot[\hat{Q}_i]_{q_j}\cdot s_1 + e^{(i)}$ Note that when we view this in RNS form, the term $P\cdot[\hat{Q}_i]_{q_j}\cdot s_1 \cong 0 \bmod p_i$.
+	%		where $b^{(i)}_j$ is the $j^\text{th}$ RNS component of $b^{(i)}$ and 
+	%		\[b^{(i)}_j =\begin{cases}
+		%			-a^{(i)}_j\cdot s_2 + [P]_{q_j}\cdot [\hat{Q}_i]_{q_j}\cdot s_1+e^{(i)}_j\bmod q_j & \text{$j$ corresponds to a normal prime} \\
+		%			-a^{(i)}_j\cdot s_2 +e^{(i)}_j\bmod q_j & \text{$j$ corresponds to a special prime}
+		%		\end{cases}\]
+	Note: we can 
+	\item Output $\set{\mathrm{swk}^{(i)}}_{0\le i < \beta}$, which we can view as a $\beta\times 2$ matrix $K$, where each element is in $R_{PQ}$.
+\end{enumerate}
+
+In the non-RNS version, key switch output $P\cdot s_1$ plus an encryption of zero; here we (roughly) output $P$ times a component of $\mathrm{RNS\mdash Power}_{\mathcal{C}'}(s_1)$, plus a (fresh) encryption of zero.
+
+\subsection{Other Approaches}
+\cite{cryptoeprint:2019/688} does not appear to be the final word on CKKS key switching; this section describes differences in later papers. \enote{TODO}
+
+\subsubsection{Approximate Homomorphic Encryption with Reduced Approximation Error}
+\cite{cryptoeprint:2020/1118} describes a different approach for $\mathrm{RNS\mdash Decomp}_\mathcal{C}$ and $\mathrm{RNS\mdash Power}_\mathcal{C}$ based on a base-$\omega$ decomposition. However, in section 2.3 it says that when using RNS, we should use RNS-digit-decomposition instead of base-$\omega$ decomposition. I confirmed that the decompositions are identical.
+
+$\mathrm{KSGen}$ uses slightly different notation, but is identical.

@@ -1,0 +1,53 @@
+%% common imports
+\usepackage{microtype}
+\usepackage{amsmath,amsfonts,amssymb,amsthm}
+\usepackage{bm}
+\usepackage{mathtools}
+\usepackage{hyperref}
+\usepackage[capitalise]{cleveref}
+\usepackage[legalpaper, margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{mathtools}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{makecell}
+\usepackage{minted}
+\usepackage{caption}
+\usepackage{float}
+\usepackage{wrapfig}
+
+% Make cleveref refer to appendices as appendices (not sections)
+% https://github.com/latex3/hyperref/issues/362
+\makeatletter
+\AddToHook{cmd/appendix/before}{\crefalias{section}{appendix}}
+\makeatother
+
+\renewcommand{\th}{\ensuremath{^{\mathrm{th}}}}
+
+% blackboard letters
+\input{\CurrentFilePath/bbhead}
+% left/right symbol pairs
+\input{\CurrentFilePath/lrhead}
+%\theorems, lemmas, collaries, etc
+\input{\CurrentFilePath/thmhead}
+
+% bibliography: *bibnames controls how many names get written in the bibliography before truncation to 'et. al', while *alphanames controls how many author names are used in the citation lable (e.g., Bae+22 vs BCD+22). See https://mirror.las.iastate.edu/tex-archive/macros/latex/contrib/biblatex/doc/biblatex.pdf
+\usepackage[backend=biber,style=alphabetic,minbibnames=4,maxbibnames=6,minalphanames=3,maxalphanames=3]{biblatex}
+% https://ctan.mirror.garr.it/mirrors/ctan/macros/latex-dev/base/ltfilehook-doc.pdf
+\addbibresource{\CurrentFilePath/../refs/eprint.bib}
+\addbibresource{\CurrentFilePath/../refs/other.bib}
+
+% fixme: prefer \fxsetup{status=draft} in main docs instead of using `draft` here
+\usepackage[multiuser,inline,nomargin,marginclue]{fixme}
+\FXRegisterAuthor{e}{ee}{\color{green}Eric}
+\FXRegisterAuthor{c}{cc}{\color{red}Craig}
+\fxusetheme{color}
+
+% show equation numbers only for referenced equations
+%\mathtoolsset{showonlyrefs}
+
+% custom operators/commands
+\DeclareMathOperator*{\mdash}{\text{-}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\newcommand{\blockquote}[1]{\vspace{0.5em}\begin{tabularx}{\textwidth}{|X}#1\end{tabularx}\vspace{0.5em}}

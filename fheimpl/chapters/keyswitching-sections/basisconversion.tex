@@ -1,0 +1,117 @@
+\documentclass[../keyswitching.tex]{subfiles}
+
+\title{Basis Conversion}
+\author{Eric Crockett}
+
+\begin{document}
+	\ifcompileasbook
+	\else
+	\maketitle
+	\listoffixmes
+	\fi
+
+\section{Basis Conversion}
+\label{sec:basisext}
+One of the fundamental operations required for key-switching is basis conversion. Let $\mathcal{B}=\set{q_i}_{0\le i< k}$ be a basis, and $x\in \Z_Q$ be represented in basis $\mathcal{B}$. By ``basis conversion'', we mean that we wish to find $\bracks{x}_Q$ in basis $\mathcal{C}$ (which we can assume is disjoint from $\mathcal{B}$). We denote this as $\mathrm{Conv}_{\mathcal{B}\rightarrow\mathcal{C}}(\cdot)$. One simple way to do this is to use CRT reconstruction to compute $\bracks{x}_Q$ over the integers, and then reduce it mod $p_i$ for each $p_i\in\mathcal{C}$. However computing the CRT reconstruction over the integers may require BigInteger arithmetic, so we seek to convert $x$ in basis $\mathcal{B}$ to $\bracks{x}_Q$ in basis $\mathcal{C}$ \emph{directly}, without doing a full CRT reconstruction of $x$. Note that we can obtain basis \emph{extension} by concatenating the CRT components of disjoint bases $\mathcal{B}$ (i.e., the input) and $\mathcal{C}$ (i.e., the output); we generally use these terms interchangeably.
+
+\subsection{Garner's Algorithm}
+Liberate-FHE uses a tweak of Garner's algorithm~\cite[Section 5.6]{geddes1992algorithms} for basis conversion, which is based on the mixed-radix CRT reconstruction algorithm:
+\[\bracks*{x}_Q = \sum_{i=0}^{k-1} \bracks*{c_i}_{q_i}\cdot Q_{i-1}\in\Z.\]
+where 
+\[c_i = \parens*{x_i - \sum_{j=0}^{i-1} \bracks*{c_j}_{q_j}\cdot Q_{j-1}}\cdot Q_{i-1}^{-1} \in\Z_{q_i}.\]
+
+Note that the $c_i$ can be computed without the use of BigInteger arithmetic since all individual terms are reduced mod $q_i$, and all of the arithmetic is in $\Z_{q_i}$.
+
+For the purposes of basis extension, we are interested in computing $\bracks{x}_p$ for some $p\in\mathcal{C}$. Since the sum for $x$ is over the integers, 
+\begin{align*}
+	\bracks*{x}_Q &\equiv \sum_{i=0}^{k-1} \bracks*{c_i}_{q_i}\cdot \bracks*{Q_{i-1}}_p \bmod p,
+\end{align*}
+where $\bracks*{Q_{i-1}}_p$ can be pre-computed. This gives us a way to compute $\bracks*{x}_Q\bmod p$ without using BigInteger arithmetic since each term is mod a small prime, the product is mod $p$, and the sum is mod $p$.
+
+This algorithm has two steps:
+\begin{enumerate}
+	\item Compute the $c_i$
+	\item Compute $\bracks*{x}_Q\bmod p\in\Z_p$ for each $p\in \mathcal{C}$
+\end{enumerate}
+The first step is inherently quadratic in $\abs{\mathcal{B}}$. The second step is linear for each $p\in\mathcal{C}$, giving an overall cost of $\mathcal{O}(\abs{\mathcal{B}}^2+\abs{\mathcal{B}}\cdot \abs{\mathcal{C}})$.
+
+The algorithm is described over the integers, but it trivially extends component-wise to ring elements. Also note that this algorithm is described using the canonical representative and outputs $\bracks*{x}_Q\bmod p$, but it works equally well with standard representatives to obtain $\abs*{x}_Q\bmod p$ by replacing all canonical representatives with standard representatives.
+
+\subsubsection{Implementation}
+The following refers to the DeSilo C++ code provided to Cornami.
+Liberate builds the $c_i$ one term of the sum at a time. Specifically, $\texttt{pre\_extend}$ maintains the following invariants at the start of iteration $i$ (named \texttt{index} in the code):
+\begin{itemize}
+	\item $\mathrm{pre\_extended}_j$ holds $\bracks*{c_j}_{q_j}$ for $j \le i$
+	\item $\mathrm{pre\_extended}_j$ holds $\sum_{k=0}^i \bracks{c_k}_{q_j}\cdot\bracks{Q_{k-1}}_{q_j}$ for $j > i$
+\end{itemize}
+
+Then in iteration $i$, $\texttt{pre\_extend}$ computes 
+\begin{align*}
+	\mathrm{pre\_extended}_{i+1} &= \bracks*{(\mathrm{partition}_{i+1} - \mathrm{pre\_extended}_{i+1})\cdot Q_{i}^{-1}}_{q_i} \\
+	&= \bracks*{(\mathrm{partition}_{i+1} - \sum_{k=0}^i \bracks{c_k}_{q_{i+1}}\cdot\bracks{Q_{k-1}}_{q_{i+1}})\cdot Q_{i}^{-1}}_{q_i} \\
+	&= \bracks*{c_i}_{q_i}
+\end{align*}
+This maintains the invariant that $\mathrm{state}_{i+1}$ holds $c_{i+1}$. The inner \texttt{for} loop maintains the second invariant. 
+%However, there is a problem: \texttt{pre\_extend} sets $\mathrm{pre\_extended}_i$ to the output of \texttt{mont\_enter}, which outputs a value in $[0, 2q_i)$. It should output a value in $[0, q_i]$, since that is the range of $\bracks*{c_i}_{q_i}$.
+
+\texttt{extend} uses the $\bracks{c_i}_{q_i}$ to compute $x \bmod p_j$ for each $p_j\in \mathcal{C}$. We note that if $p_j\in\mathcal{B}$ is also in $\mathcal{C}$ (as it is in key-switching), we do \emph{not} need to run \texttt{extend} for $p_j$, since $y_j=x_j$.\footnote{However, an implementation \emph{may} choose to do so, as it is mathematically correct. Liberate-FHE takes this approach.} 
+
+\subsection{Fast Basis Conversion}
+\label{sec:fastextension}
+\cite{cryptoeprint:2018/117} introduced an alternative to Garner's algorithm which they call ``fast basis conversion'' (FBC). Like Garner's algorithm, FBC enables CRT basis conversion/extension without doing a CRT reconstruction. FBC utilizes floating-point arithmetic. Due to the finite precision inherent in the use of floating-point arithmetic, FBC has a low probability of introducing small approximation errors, which ``in the context of homomorphic operations are inconsequential''.
+
+Garner's algorithm is based on the mixed-radix CRT reconstruction formula. By comparison, FBC uses the following reconstruction formula:
+\[\bracks*{x}_Q = \parens*{\sum_{i=1}^k[x_i\cdot\tilde{Q}_i]_{q_i}\cdot Q_i^*}-\round*{\sum_{i=i}^k\frac{[x_i\cdot\tilde{Q}_i]_{q_i}}{q_i}}\cdot Q\in \Z,\]
+where the division is floating-point.	
+
+Thus, we compute $y_i=[x_i\cdot\tilde{Q}_i]_{q_i}\in \Z_{q_i}$, the rationals $z_i=y_i/q_i$, and $v=\round*{\sum_{i=i}^kz_i}\in\Z$. Then 
+\[\bracks*{x}_Q \equiv \parens*{\sum_{i=1}^k y_i\cdot [Q_i^*]_p}-v\cdot [Q]_p\bmod p.\]
+
+When $p=\prod_{j=1}^{k'} p_j$, we compute $[x]_{p_j}$ for each $j$, reusing the precomputed value of $v$.
+
+This process is exact up to floating-point precision, which is insignificant relative to the noise added to ciphertexts for security purposes.
+
+This is actually used in practice; see~\cite{cryptoeprint:2018/589} for more details.
+
+FBC is a two-step process:
+\begin{enumerate}
+	\item Compute $y_i$, $v_i$, and $v$
+	\item Compute $\bracks*{x}_p$ for each $p\in \mathcal{C}$
+\end{enumerate}
+The first step is $\mathcal{O}(\abs{\mathcal{B}})$. The second step is $\mathcal{O}(\abs{\mathcal{B}}\cdot \abs{\mathcal{C}})$. Thus this approach is better than Garner's algorithm, especially in cases where $\abs{\mathcal{B}}$ is large (which is true when $k$ is large), at the cost of the use of floating point arithmetic and a small amount of error.
+
+\subsection{Adding Error without Floating Point Arithmetic}
+\label{sec:basisExtErr}
+\cite{cryptoeprint:2016/510} proposed an alternate algorithm that is similar to \cref{sec:fastextension}, but it does not require floating-point arithmetic. Essentially, it skips the step in \cref{sec:fastextension} that subtracts off a multiple of $q$. As a result, the answer isn't quite correct, and correction is needed, which takes additional operations.
+
+It defines
+\[\mathrm{FBC}(x,q,\mathcal{B}) = \parens*{
+	\sum_{i=1}^k \abs*{x_i\cdot \tilde{Q}_i}_{q_i}\cdot Q_i^*\bmod m}_{m\in\mathcal{B}}\]
+where $\abs{\cdot}_q$ denotes the standard representative.
+
+\cite{cryptoeprint:2018/117} concludes:
+
+\blockquote{Compared to~\cite{cryptoeprint:2016/510}, our procedures and simpler and faster, and introduce a lower amount of noise.}
+
+\cite{cryptoeprint:2018/589} compares the approaches in~\cite{cryptoeprint:2016/510} and~\cite{cryptoeprint:2018/117}, and essentially concludes the same thing.
+
+This is used in~\cite{cryptoeprint:2018/931}. It is also used in~\cite{cryptoeprint:2019/688}\footnote{It defines the algorithm using the canonical representative, without comment}, which appears to \emph{not} include any of the correction steps. It says:
+
+\blockquote{It includes the noise which can be ignored in the case of the \textrm{HEAAN-RNS} scheme. Even though the effect of this noise is negligible, we can reduce its size further by adapting the algorithms introduced in~\cite{cryptoeprint:2018/117}.}
+
+\subsection{Reduce Error without Floating Point Arithmetic}
+Recently,~\cite{cryptoeprint:2024/417} gave an alternate to FBC that replaces the floating-point arithmetic in~\cite{cryptoeprint:2018/117} with integer operations. It requires some knowledge of how the RNS primes are selected (relative to $\Delta$), and is error-free with high probability. The complexity is $\mathcal{O}(\abs{\mathcal{B}}\cdot\abs{\mathcal{C}})$, the same as FBC, but no floating point operations are required.
+
+\subsection{Comparison}
+Assume basis conversion from $\mathcal{B}$ to $\mathcal{C}$, where $B$ and $C$ are disjoint.
+
+The complexity of Garner's algorithm is $\mathcal{O}(|\mathcal{B}|^2+|\mathcal{B}||\mathcal{C}|)$.
+
+The complexity of FBC is $\mathcal{O}(|\mathcal{B}|+|\mathcal{B}||\mathcal{C}|)$, but requires the use of floating-point arithmetic.
+
+\ifcompileasbook
+\else
+\printbibliography
+\fi
+
+\end{document}

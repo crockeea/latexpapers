@@ -1,0 +1,156 @@
+\documentclass[../keyswitching.tex]{subfiles}
+
+\title{Key Switching}
+\author{Eric Crockett}
+\begin{document}
+	\ifcompileasbook
+	\else
+	\maketitle
+	\listoffixmes
+	\fi
+
+\section{Key Switching}
+\label{sec:ks}
+This section describes the key-switching algorithm from~\cite{cryptoeprint:2019/688}, which is used in Liberate-FHE.
+%We note that this algorithm seems specific to relinearization; it's not clear how it changes for other forms of key switching. 
+We describe the algorithm without reference to RNS to simplify notation, but implicit in this description is that any ring element with a compound modulus (denoted by a capital letter) would be represented in an implementation in RNS form.
+
+Let $\alpha=k$ be a parameter for the number of special primes, $\ell$ be the level of the input ciphertext, $Q=\prod_{i=0}^{\ell}q_i$, $\mathcal{Q}=\set{q_i}_{0\le i \le \ell}$, $P=\prod_{i=0}^{k-1}p_i$, and $\mathcal{P}=\set{p_i}_{0\le i < k}$. We partition the $\ell+1$ normal primes into $\beta$ groups of size $\approx \alpha$; note that some groups may have fewer than $\alpha$ primes, and there may be fewer than $\beta$ groups at low. The composite modulus for each group is $Q_j^\alpha=\prod_{i=j\alpha}^{(j+1)\alpha-1}q_i$ with basis $\mathcal{Q}_j=\set{q_i}_{j\alpha\le i\le (j+1)\alpha-1}$. We also define $\hat{Q}_j=Q/ Q_j^\alpha$ for $0\le j<\beta$.
+
+Implicit in this description is that each key switch key $ksk_i$ is an encryption of $P\cdot \hat{Q}_j\cdot \abs{\hat{Q}_j^{-1}}_{Q_j^\alpha}\cdot s_1$ per~\cite{cryptoeprint:2020/1203}. Note that this value is $0\bmod q$ for $q\in \mathcal{P}\cup\parens{\mathcal{Q}\setminus \mathcal{Q}_j}$.
+
+At a high level, key switching involves:
+\begin{enumerate}
+	\item \textbf{Decompose} Given a ring element $a$, output $\set{a\bmod Q_j}_{0\le j< \beta}$. There is no computation in this step; it merely involves partitioning the RNS components of the input.
+	\item \textbf{ModRaise} Raise the modulus of each $a\bmod Q_j$ to $P\cdot Q$, using basis extension (cf.~\cref{sec:basisext}).
+	\item \textbf{Dot Product} We can view the output of \textrm{ModRaise} as a row vector in $y\in R_{P\cdot Q}^\beta$, and we can view the key switch keys as a matrix in $K\in R_{P\cdot Q}^{\beta\times 2}$ We want to compute $y\cdot K\in R^2_{P\cdot Q}$.
+	\item \textbf{ModDown} Reduce the modulus of both outputs of the dot product to $Q$, while simultaneously diving the values by $P$.
+\end{enumerate}
+
+The following subsections describe these steps in more detail.
+
+\subsection{Implementation}
+\subsubsection{Decomposition}
+Given a ring element $a \in R_{Q}$ in RNS form, i.e. $a = (a_0\in R_{q_0}, a_1\in R_{q_1}, \ldots, a_{L}\in R_{q_L})$ split it into groups of size $\alpha$ corresponding to $Q_j^\alpha$ for $0\le j< \beta$. We now have $\beta$ ``states'', each with $\le\alpha$ ring elements. State $j$ is $s_j=(a_{j\cdot\alpha}, a_{j\cdot\alpha + 1}, \ldots, a_{(j+1)\alpha-1})$.
+
+\subsubsection{ModRaise}
+In the notation of~\cref{sec:basisext}, each state $x$ has basis $\mathcal{B}=[(q_{j\cdot\alpha}, q_{j\cdot\alpha + 1}, \ldots, q_{(j+1)\alpha-1})]$. Thus we compute $x_p = \mathrm{ExtendBasis}(x, \mathcal{B}, p)$ for all $p \in (\mathcal{Q}\cup\mathcal{P}) / \mathcal{B}$. Note that these calls are done in parallel, \emph{not} sequentially. We create an extended state by appending each new ring element to the input, producing a new state with respect to the basis $\mathcal{Q}\cup\mathcal{P}$.
+
+\subsubsection{Dot Product}
+There are two details to discuss. First, this step involves multiplying ring elements, which requires the ring elements to be in their NTT form. After doing the dot product, we need to mod-down in the non-NTT form, hence we apply $\mathrm{NTT}(\cdot)$ before computing the vector/matrix product, and $\mathrm{iNTT}(\cdot)$ after computing the product.
+
+The other note is that key-switching keys are with respect to the basis $\mathcal{Q}\cup\mathcal{P}\cup\set{q_{\ell+1}, q_{\ell+2}, \ldots, q_L}$. Simply discard key-switching key components corresponding to $\set{q_{\ell+1}, q_{\ell+2}, \ldots, q_L}$ before multiplying. 
+
+\subsubsection{ModDown}
+We simply apply the rescaling algorithm (or, what Liberate calls \textsf{mod\_down}, since the level doesn't change). Ideally, we would use nearest-integer rounding to minimize key-switch error, but Liberate-FHE uses floor-rounding.
+
+\subsection{Relinearization}
+Relinearization is a special form of key-switching. After multiplication, a ciphertext $c$ has three components $(d_0, d_1, d_2)$ corresponding to the basis $(1, s, s^2)$. Recall that key-switching outputs two ring elements $k_0$ and $k_1$. To relinearize a ciphertext, we output $(d_0+k+0, d_1+k+1)$.
+
+\subsection{Key-Switch Parameterization}
+\subsubsection{Computation}
+First, some background. To ensure security, the modulus cannot exceed a bound $b(N)$, which is a function of the ring dimension $N$. During key switching, the modulus reaches its maximum at $Q\cdot P$, so we require $\log{(Q\cdot P)}\le b(N)$. Another constraint is that we need $P > Q_j$ for each $0\le j<\beta$. The size of $Q_j$ is determined by the CKKS precision parameter, and by the main key-switching parameter $k$, the number of special primes. Specifically, there are $\beta=\ell/k$ $Q_j$s. 
+
+To determine the implications of the parameter $k$, we need to consider the computational complexity of each of these steps. Let the ciphertext level be $\ell$, and the ring dimension $N$. Then $\beta\approx \ell/k$ and $\alpha =k$.
+\begin{itemize}
+	\item Decompose is a no-op.
+	\item ModRaise requires $\mathcal{O}(\ell^2 + \ell\cdot k)$ ring operations.
+	\item DotProduct requires $\mathcal{O}(\frac{\ell^2}{k}+\ell)$ ring operations, plus $\mathcal{O}(\frac{\ell^2}{k}+\ell+k)$ NTTs. The NTTs dominate, hence this step requires $\mathcal{O}((\frac{\ell^2}{k}+\ell+k)\cdot N\log N)$ arithmetic operations.
+	\item ModDown requires $\mathcal{O}(\ell\cdot k + k^2 + \ell)$ ring operations.
+\end{itemize}
+
+Overall, this process is dominated by the number of NTTs, which is depends on $k$: if $k\approx \ell$, we only need to do $\approx \ell$ NTTs, while if $k=1$, we have to do $\approx \ell^2$ NTTs. The table below estimates the number of arithmetic operations for the two extreme choices $k=1$ and $k=\ell$. In order to do a direct comparison, we fix $\bar{\ell}$ to be the number of normal primes at level $\ell$ when $k=1$. For the ``$k=\ell$'' parameterization, we cannot set $k=\ell=\bar{\ell}$ due to the bound on $P\cdot Q$. Instead, we set $k=\ell=\frac{\bar{\ell}}{2}$. The table expresses parallelism as $c\cdot \mathcal{O}(d)$, which means that we have do $\mathcal{O}(d)$ serial work in parallel $c$ times.
+
+While the ``$k=\ell$'' parameter choice significantly reduces the cost of key switching relative to $k=1$, it also reduces the \emph{utility} of the FHE scheme. Specifically, the $k=1$ choice supports $\bar{\ell}$ sequential multiplications before bootstrapping, while ``$k=\ell$'' only supports $\bar{\ell}/2$ sequential multiplications before bootstrapping. In many cases, it makes sense to use a value of $k$ somewhere between the two extremes. In practice, the best choice for $k$ is application-specific, determined by (at least):
+\begin{itemize}
+	\item The (multiplicative) depth of the circuit
+	\item The cost of bootstrapping
+	\item The number of non-relinearization key-switches in the application
+\end{itemize}
+
+
+Note that this paper describes a hybrid approach, meaning that $1 < k < L$ where $k$ is the number of special moduli and $L$ is the number of ciphertext moduli.
+
+\subsubsection{Error Analysis}
+Let $d$ be the input to key switching. There are three kinds of error that contribute additively to the overall ciphertext error after key switching:
+\begin{itemize}
+	\item Input error. This is the error of the ciphertext before key switching. This could be relevant to key switching because we don't want to do more work than necessary to make the key-switch error very small if the input error is somewhat large. However, we will ignore this for now.
+	\item Error introduced by the key-switch keys. Ideally, this will be roughly the same size as the rounding error.
+	\item Error introduced by rounding when dividing by $P$. This error is (depending on details) roughly $\frac{1}{2}s$, where $s$ is the secret key. Note that the secret key is the same size (or perhaps smaller if we use a sparse secret key) than a fresh error term. See~\cref{sec:roundingerr} for more details.
+\end{itemize}
+It suffices\footnote{According to Craig. Technically, we should be looking at the norm of the error term under the canonical embedding, but Craig says this is an isometry, so we can get an idea of relative error by looking at the coefficients.} to consider the magnitude of coefficients in the error term (and of ring elements multiplied into it). 
+
+\paragraph{$k=\ell$}
+In this case, there is one KSK $K=(k_0, k_1)$, where $k_0\cdot s_2 + k_1 = P\cdot s_1+e$. There is no decomposition step in this parameterization, so in the dot product step, $d\cdot k_0\cdot s_2 + d\cdot k_1 = d\cdot P\cdot s_1 + d\cdot e$. $d$ has coefficients smaller than $Q$, so after dividing by $P$, the error term is $\approx \frac{Q\cdot e}{P}$. We pick $P$ to be slightly larger than $Q$, so this error is somewhat smaller than the original error $e$.
+
+Concretely, Liberate's silver parameters with $k=8$ would result in $L=8$, and at level 1, $\ell=7$. Then $Q\approx 2^{300}$, $P\approx 2^{480}$, and the error term is $2^{-180}e$. This is really much smaller than it needs to be, so it's wasteful; see~\cref{sec:liberatesuggestsion}.
+
+\paragraph{$k=1$}
+In this case, there are many KSKs $K_j=(k_{j,0}, k_{j,1})$, where $k_{j,0}\cdot s_2 + k_{j,1} = P\cdot\hat{Q}_j\cdot s_1+e$. After decomposition, $\tilde{d}=\hat{Q}_j^{-1} \bmod Q_j$ has coefficients smaller than $Q_j=q_j$. After dot product and division by $P$, we get $\tilde{e}\approx\sum_{i=0}^{L} \frac{q_i\cdot e}{P}$. In Liberate, $q_0 \approx p=P\approx 2^{60}$, so this sum is $\approx e+\frac{L\cdot q\cdot e}{P}$, where $P>L\cdot q$.
+
+Concretely, for Liberate's silver parameters with $k=1$, we have 18 normal primes and one special prime. $\beta=17$ at level 1, so $\tilde{e}=\frac{2^{60}e}{2^{60}} + \sum_{i=1}^{16} \frac{2^{40}e}{2^{60}} \approx e+ 2^{-16}\cdot e$.
+
+\paragraph{Summary}
+Technically, $k=\ell$ results in a smaller error, but in practice, both should produce roughly the same key-switch error.
+
+\subsubsection{Implementation Complexity}
+I consider the difference in implementation complexity between these two parameter choices to be essentially zero. Given my observation in~\cref{sec:liberatesuggestsion}, the difference actually \emph{is} zero: all values of $k$ result in multiple states, which means the only difference between different choices of $k$ is how many states we are adding together (minimum of two, maximum of many).
+
+\subsubsection{Utility Tradeoff}
+As noted elsewhere, \emph{security} is determined by the size of the ciphertext modulus relative to the size of the error. Key-switch keys represent the most extreme situation: they have fresh encryption error (which is as small as it gets) and the biggest modulus ($P\cdot Q$). Put very simply, $P\cdot Q$ is upper-bounded by a function $B(N)$ of the ring dimension. Thus, for a fixed security level, the size of $P$ (in Liberate, 60 bits times the number of special primes) determines the number of bits we can allocated to $Q$, which in turn determines the number of ``levels'' (sequential multiplications) that can be computed before bootstrapping is required.
+
+In summary, small $k \Rightarrow$ small $P \Rightarrow$ big $Q\Rightarrow$ many levels before bootstrapping. Recall that this choice of $k$ also results in a \emph{quadratic} number of NTTs, which is expensive.
+
+By contrast, $k=\ell \Rightarrow$ big $P \Rightarrow$ small $Q\Rightarrow$ fewer levels before bootstrapping. Recall that this choice of $k$ results in a \emph{linear} number of NTTs.
+
+\subsubsection{Summary}
+{
+	\renewcommand{\arraystretch}{1.5}
+	\begin{center}
+		\begin{tabular}{ |c|c|c| } 
+			\hline
+			& $\ell=\bar{\ell}$, $k = 1$ & $\ell = k = \bar{\ell}/2$ \\
+			\hline
+			Decompose  & $\bar{\ell}\cdot \mathcal{O}(N)$         & $\frac{\bar{\ell}}{2}\cdot\mathcal{O}(N)$                      \\
+			ModRaise   & $\bar{\ell}^2\cdot \mathcal{O}(N)$       & $\frac{\bar{\ell}}{2}\cdot \mathcal{O}(\frac{\bar{\ell}}{2}\cdot N)$ \\
+			DotProduct & $\bar{\ell}^2\cdot \mathcal{O}(N\log N)$ & $\bar{\ell}\cdot \mathcal{O}(N\log N)$                         \\
+			ModDown    & $\bar{\ell}\cdot\mathcal{O}(N)$          & $\frac{\bar{\ell}}{2}\cdot\mathcal{O}(N)$                      \\
+			Key-Switch Error & $\approx$ fresh error & $\lesssim$ fresh error \\
+			Impl Complexity & same & same \\
+			Utility & \makecell[c]{many levels$\Rightarrow$\\ infrequent bootstrapping} & \makecell[c]{few levels$\Rightarrow$\\more frequent bootstrapping} \\
+			\hline
+		\end{tabular}
+	\end{center}
+}
+
+\subsection{Key Switching Suggestions}
+\label{sec:liberatesuggestsion}
+\subsubsection{Don't isolate $q_0$}
+Liberate is \emph{always} putting the $q_0$ CRT component into its own state, regardless of the number of special primes.\footnote{Independent of the issue raised here, there doesn't seem to be any mathematical reason to do this.} When $k=2$, this isn't a big deal: some states have one prime, and some states have two depending on the level of the input. When $k>2$, this becomes more unbalanced. For example, if $k=4$, most states will correspond to four primes, while one state will always correspond to (only) $q_0$. In the extreme case of $k=\ell$, (e.g., $k=\ell=8$), there \emph{should} only be one state corresponding to $q_0\cdot\ldots\cdot q_7$, but Liberate insists on putting $q_0$ into its own state, so there are now two states: one with $q_0$ and one with $q_1\cdot\ldots\cdot q_7$. This means in Liberate's implementation, there is no computational advantage of using $k=\ell$ over $k=\ell/2$. From a utility perspective, this is also wasteful: we only \emph{need} seven special primes (or maybe even less, depending on $\Delta$), but we're using eight, resulting in more work and a smaller-than-necessary key-switch error.
+
+\subsubsection{Only extend with max$(Q_j)$ special primes}
+As noted above, states (corresponding to $Q_j$) don't always correspond to the same number of special primes. In general, we only need $P\gtrsim \max_j(Q_j)$. Again, this isn't such a big deal when $k=2$ because unless we're at the highest level, some $Q_j$ will correspond to two primes, and we always basis-extend with both special primes. However, when $k=\ell$ (independent of the issue above), we need seven $p_j$s for level 0 key-switching, six for level-1, and so on. But Liberate is \emph{always} basis-extending with all eight special primes. This is computationally wasteful, and results in noise that is much smaller than necessary.
+
+\ifcompileasbook
+\else
+\printbibliography
+\fi
+
+\end{document}
+
+%	Roughly, in $\mathrm{KSGen}$, each key-switch key corresponds to a component of $\mathrm{RNS\mdash Power}_\mathcal{C}(s^2)$. Thus in key switching, we first compute $\mathrm{RNS\mdash Decomp}_\mathcal{C}(d) \in \prod_{i=0}^{\beta-1} R_{Q_i}$. The next step is to mod-raise each chunk to $P\cdot Q$, resulting in $\beta$ copies of $R_{PQ}$
+%	Next, we multiply (on the right) by the key-switch matrix $K$. Next we divide by P and reduce the modulus of both components to $Q$.
+%		
+%	In more detail, the first step is to partition the RNS representation of $d$ from mod individual normal primes $q_i$ to mod the composites $Q_i$. This is merely a regrouping, no computation needed. Thus $d\in R_Q\cong \prod_{i=0}^L R_{q_i}$, and we instead view it as $d\in R_Q\cong \prod_{i=0}^{\beta-1} R_{Q_i}$. We denote the components of this isomorphism by $d^{(i)}$ for $0\le i < \beta$. 
+%	
+%	In step 2-1, the paper computes $d'^{(i)} = d^{(i)}\cdot Q'$, where $Q'$ is the product of all \emph{normal} primes ``above'' the level of the input. In Liberate terms, if we are at level $i$, we have discarded $q_0, \ldots, q_{i-1}$, so $Q'=\prod_{j=0}^{i-1} q_j$.
+%	
+%	In step 2-2, the paper applies $\mathrm{RNS\mdash Decomp}_\mathcal{C'}$ by computing $\bar{d}^{(i)} = d'^{(i)}\cdot \hat{Q}_i^{-1}$.
+%	
+%	In step 3, the paper computes $\tilde{d}^{(i)}$ by raising the modulus of $\bar{d}^{(i)}$ from $Q_i$ to $PQ$, i.e., changing the basis from $\mathcal{C}'_i$ to $\mathcal{D}_\beta={Q_0, Q_1, \ldots, Q_{beta-1}, P}$. Note, however, that due to the multiplication by $Q'$, the output should be zero mod some of these components. Computationally, this involves using the algorithm from~\cref{sec:fastextension}.
+%	
+%	Having raised the modulus, we can now view $\tilde{d}^{(i)}$ as a row vector and compute $(\tilde{c}_0, \tilde{c}_1) = \tilde{d}^{(i)}\cdot K$ (or equivalently, compute \emph{two} inner products).
+%	
+%	Next we ``mod down'' from $PQ$ to $Q$. In this step, we view the output basis as the prime basis $\prod_{i=0}^L R_{q_i}$, rather than the composite basis $\prod_{i=0}^{\beta-1} R_{Q_i}$.
+%		
+%	Finally, we add these components to the constant and linear terms of the multiplied ciphertext (discarding the quadratic term).

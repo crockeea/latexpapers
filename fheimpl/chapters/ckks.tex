@@ -1,0 +1,168 @@
+\documentclass[../fheimpl.tex]{subfiles}
+
+\title{CKKS Homomorphic Encryption}
+\author{Eric Crockett}
+
+\begin{document}
+\ifcompileasbook
+\else
+\maketitle
+\listoffixmes
+\fi
+
+\section{Native Operations}
+    \begin{itemize}
+        \item Slot-wise addition/subtraction
+        \item Slot-wise multiplication
+        \item Slot-wise conjugation
+        \item Slot-wise multiplication by $i$
+        \item Cyclic rotation of slots		
+    \end{itemize}
+
+\section{Errors}
+Errors can be confusing in lattice cryptography; this section seeks to demystify them. 
+
+\subsection{RLWE Security}
+First, the ``lattice'' in lattice cryptography is based on the \emph{canonical embedding} of a ring element. Let $t(X)$ be a polynomial / ring element. The canonical embedding of $t(X)\in R$ is
+\[\sigma(t(X)) = \set*{t\parens*{\exp\parens*{2\pi i\cdot (2j+1)/m}}}_{0\le j<N}\in \C^N.\]
+The lattice is then $\Lambda=\sigma(R)$. We know a nearly-orthogonal basis for this lattice, so we can solve the closest-vector problem (CVP) on it quite easily. In fact, we do exactly that in the CKKS encoding procedure: we are given a vector in $v\in \R^N$, then round off the coefficients to get a ring element $r\in R$. But $\sigma(r)$ is the closest lattice point to $v$ in $\Lambda$.
+
+An RLWE instance is a pair $(a, b=a\cdot s+e)$. The security of RLWE essentially depends on the hardness of CVP in the sublattice $\Lambda_a$ of $\Lambda$ induced by $a$. In short, the goal of the RLWE problem is to recover $s$. The best way to do this appears to be to find the closest lattice point to $\sigma(b)$ in $\Lambda_a$, which corresponds to $\sigma(a\cdot s)$. Given $a$, we can then recover $s$ by inverting a linear operation inducing multiplication by $\sigma(a)$.
+
+There are good algorithms for solving CVP when the error term has a very small $\ell_2$ norm. For security, the norm needs to be close to (or larger than) the minimum distance of $\Lambda_a$. The exact details go beyond the scope of this document; the takeaways are that
+\begin{itemize}
+    \item The $\ell_2$ norm of (the canonical embedding of) the RLWE error term matters for security.
+    \item It must be at least a certain size, or CVP becomes easy.
+\end{itemize}
+
+Theoretically speaking, there is also an upper bound on the size of the error, though this doesn't manifest directly in encryption schemes. The short version is that encryption schemes are based on the hardness of solving CVP, and if the error term grows so large that the nearest lattice point is \emph{not} $\sigma(a\cdot s)$, then the reduction breaks.
+
+\subsection{FHE correctness}
+While having an error terms is crucial to the security of RLWE, it also introduces problems in homomorphic encryption schemes because if the error grows too large, it may overwhelm the ``signal'' of the message. This is less of a problem for CKKS than for other FHE schemes, but it still matters. In particular, we need $\length{\sigma(e)}_\infty\ll \Delta$.\footnote{Note that since $\Delta < q$, this implicitly avoids wraparound mod $q$.} This is because we decryption recovers $\Delta\cdot m + e$, so we divide by $\Delta$, making the error term negligible.
+
+
+\subsection{Connection between these notions of size}
+
+$\length{\sigma(e)}_2 = \sqrt{n}\cdot\length{e}_2$, where $\length{e}_2$ is the $\ell_2$ norm of the coefficients of $e$. This induces a bound on the infinity norm:
+\[\length{\sigma(e)}_\infty\le \sqrt{n}\cdot \length{e}_\infty.\]
+
+However, the precise value we care about for precision is $\length{\sigma(e)}_\infty$. The maximum error (in each slot) is therefore $\frac{\length{\sigma(e)}_\infty}{\Delta}$.
+
+A rough estimate of the number of bits of precision is $-\log_2\parens*{\frac{\length{\sigma(e)}_\infty}{\Delta}}$. This assumes that the message has (scaled) magnitude $\approx 1$ in each slot.
+
+\section{Decryption}
+    \subsection{Liberate \textsf{decryptcode}}
+
+    \begin{enumerate}
+        \item Do a dot product with the secret key
+        \item Compute its standard representative
+        \item set \textsf{base} to be the big-prime component
+        \item set \textsf{scaler} to be the (last) normal-prime component
+        \item Do a CRT reconstruction \emph{of the constant terms only} with the last two normal-prime components and the big-prime component. Ignore all RNS components between these, and all other polynomial coefficients. Get the canonical representative of this reconstruction.
+        \item Add $q_1-1$ to the previous step, then divide by $q_1$
+        \item Set the constant coefficients of \textsf{scaler} and \textsf{base} to 0.
+        \item compute $\mathsf{scaled}=\mathsf{base}-\mathsf{scaler}$
+        \item Multiply that by some scalar
+        \item Compute its canonical representative
+        \item add \textsf{rounder}, whatever that is
+        \item Decode, without scaling\footnote{Note that even though we pass ``correction'', it is not used since we decode without scaling.} 
+        \item Divide by the scale factor and multiply by a ``correction factor'', which appears to be a ratio of primes. It's not clear why we passed the correction factor into the decode step and used it afterwards.
+        \item Add yet another scalar to each component of the decoded output, again using the correction factor and scale.
+    \end{enumerate}
+
+\section{NTT}
+See
+
+An NTT is a discrete Fourier transform (DFT) over a finite field (as opposed to $\C$). It can be used to apply a \emph{cyclic convolution} to map from $\Z_q[X]/(X^N-1)$ to $Z_q^N$. Note, however, that in FHE, we use the ring $\Z_q[X]/(X^N+1)$. In this case, we need an \emph{negacyclic convolution}. See~\cite{cryptoeprint:2024/585} for a good introduction to these concepts. In short, we can obtain a negacyclic convolution by tweaking a standard DFT. 
+
+Given an $m\th$ root of unity $\omega_m$, $\mathsf{DFT}_m$ is defined as $\bracks{\omega_m^{ij}}$. Naturally, this takes $m^2$ time to apply, but we can reduce this to $m\log(m)$ using a clever decomposition technique due to Cooley-Tukey and/or Gentleman/Sands~\cite{cryptoeprint:2024/585}, where $m=2^k$. Note that we use the decompositions as defined in~\cite{cryptoeprint:2013/293}, but~\cite[C.2.5]{cryptoeprint:2015/1134} contains an alternate description.
+
+\[\mathsf{DFT}_m = (I_2\otimes \mathsf{DFT}_{m/2})\cdot T_m\cdot (\mathsf{DFT}_2\otimes I_{m/2}),\]
+where
+\[
+\begin{bmatrix}
+    1 & 1 \\
+    1 & -1
+\end{bmatrix}
+\]
+and
+$T_m$ is the $m\times m$ diagonal matrix with $\omega_m^i$ in the $i\th$ diagonal entry.
+
+
+Note that the output of this decomposition yields the output in \emph{bit-reversed} order compared to the definition of DFT.
+
+The inverse operation is
+\[\mathsf{DFT}_m^{-1} = (\mathsf{DFT}_2^{-1}\otimes I_{m/2})\cdot T_m^{-1}\cdot(I_2\otimes \mathsf{DFT}_{m/2}^{-1})\]
+and this expects its inputs in bit-reversed order, but outputs the standard order.
+As an optimization, note that $\mathsf{DFT}_2^{-1}=\frac{1}{2}\mathsf{DFT}_2$, so we can replace $\mathsf{DFT}_2^{-1}$ with $\mathsf{DFT}_2$ and apply a final division by $m$.
+
+Next we discuss the ``tweak'' to turn the DFT into a negacyclic convolution, a transformation that most implementations simply call ``NTT''\footnote{This is not a great name, as the NTT already refers to an \emph{cyclic} convolution (i.e., DFT) over a finite field, but here the usage is for a negacyclic convolution (i.e., tweaked DFT)}. 
+
+Formally, $\mathsf{NTT}_m$ is the $\frac{m}{2}\times\frac{m}{2}$ transformation whose decomposition is
+\[\mathsf{NTT}_m = \mathsf{DFT}_{m/2}\cdot \hat{T}_m\cdot (\mathsf{NTT}_2\otimes I_{m/2}),\]
+where $\hat{T}_m$ is the $\frac{m}{2}\times\frac{m}{2}$ diagonal matrix with $\omega_m^i$ in the $i\th$ diagonal entry.
+Note that $\mathsf{NTT}_2 = [1]$, so this simplifies to 
+\[\mathsf{NTT}_m = \mathsf{DFT}_{m/2}\cdot \hat{T}_m.\]
+
+Similarly,
+
+\[\mathsf{NTT}_m^{-1} = \hat{T}_m^{-1}\cdot \mathsf{DFT}_{m/2}^{-1}.\]
+
+There are a few subtleties here worth noting: $\hat{T}_m$ uses $m\th$ roots of unity, even though the transform is $\frac{m}{2}\times\frac{m}{2}$. In the recursive calls, (e.g., to $\mathsf{DFT}_{m/2}$ we need to use an $(m/2)\th$ root of unity, which we can obtain by computing $\omega_{m/2}=\omega_m^2$, or by using a ``stride'' of two when accessing an array that contains increasing powers of $\omega_m$.
+
+We also note that in many cases, bit reversal (to get the output of DFT/NTT in standard order) is \emph{not} required. The same is not true for the CKKS encoding step, which uses a similar decomposition.
+
+\section{Encoding}
+\label{sec:ckksencoding}
+    In CKKS, a plaintext is a vector $v\in \C^{N/2}$, where $N$ is the ring dimension. CKKS encrypts each coefficient of $v$ into a \emph{slot}. These slots enable batching, which helps improve the efficiency of homomorphic encryption. Each ciphertext operation induces the same operation on each slot independently.	
+	
+    During encryption, we apply a transformation $\tau^{-1}: \C^{N/2}\rightarrow \R[X]/(X^N+1)$, and then round the coefficients to get a polynomial $m(X)\in R=\Z[X]/(X^N+1)$ with integer coefficients. This process is called ``encoding''. We then encrypt this polynomial to the ciphertext $(-a(X)\cdot s(X) + m(X) + e(X), a(X))\in R_Q^2$ for an error polynomial $e(X)$, random polynomial $a(X)$, and secret polynomial $s(X)$.
+	
+    For an arbitrary ciphertext, 
+    \[\inner{ct, sk} = t(X) = m(X)+q\cdot I(x)\in R,\]
+    where $m(X)$ is the encoding of a message\footnote{Message has $N/2$ complex components; its encoding has $N$ coefficients} and $q$ is small\footnote{Or equivalently, the ciphertext has few RNS components.}. CKKS maintains $I(x)$ to have small coefficients; this doesn't matter for decryption, but it's critical for bootstrapping.\footnote{\label{footnote:sparsekey}\cite{cryptoeprint:2018/153} shows that $\length{I}_\infty = \mathcal{O}\parens*{\sqrt{h}}$, where $h$ is the Hamming weight of the (binary) secret key.} The actual decryption formula is therefore $\bracks{\inner{ct, sk}}_q = m(X)\in R_q$, where $m(X)$ implicitly includes an error term. We recover the (noisy) plaintext slots by decoding $m(X)$ to $\tau(m(X))$.
+	
+    The decoding function $\tau$ maps a polynomial in $\R[X]/(X^N+1)$ to the values held in the slots in $\C^{N/2}$\footnote{We apply $\tau$ to polynomials in $R=\Z[X]/(X^N+1)\subset \R[X]/(X^N+1)$.}. For a polynomial $m(X)$, we can recover the slots via the following $\frac{N}{2}\times N$ linear transform~\cite{cryptoeprint:2018/153}:
+    \[U=
+	\begin{bmatrix}
+		1 & \zeta_0 & \zeta_0^2 & \ldots & \zeta_0^{N-1} \\
+		1 & \zeta_1 & \zeta_1^2 & \ldots & \zeta_1^{N-1} \\
+		\vdots & \vdots & \vdots & \ddots & \vdots \\
+		1 & \zeta_{\frac{N}{2}-1} & \zeta_{\frac{N}{2}-1}^2 & \ldots & \zeta_{\frac{N}{2}-1}^{N-1} \\
+		
+	\end{bmatrix}
+    \]
+	
+    The encoding function $\tau^{-1}$ can be achieved\footnote{The actual encoding function is $\round*{\frac{\Delta}{N}\parens*{\overline{U}^\intercal\cdot z+U^\intercal \cdot \overline{z}}}$. We can ignore the scaling by $\Delta$ and rounding for bootstrapping.} as
+    \[m(X) = \frac{1}{N}\parens*{\overline{U}^\intercal\cdot z+U^\intercal \cdot \overline{z}}\]
+
+    \subsection{Decomposition}
+    \cite{cryptoeprint:2018/1043} introduces a sparse decomposition, similar to the NTT decomposition above, for the decoding matrix. For the purposes of this section, we define $\ell=N/2$, where $N$ is the ring dimension, and $m=2N$ is the cyclotomic index.
+
+    First, it defines a ``special Fourier transform'' matrix $\mathsf{SF}_\ell$. \cite{cryptoeprint:2018/1043} gives a dense matrix description, but it doesn't make much sense to me. Instead, I reverse-engineered a sparse decomposition from the efficient code they gave:
+    \[\mathsf{SF}_\ell = (\mathsf{DFT}_2\otimes I_{\ell/2})\cdot \tilde{T}_\ell\cdot(I_2\otimes \mathsf{SF}_{\ell/2})\]
+    We also need the transpose (note: not the inverse!):
+    \[\mathsf{SF}^\intercal_\ell = (I_2\otimes \mathsf{SF}_{\ell/2}^\intercal)\cdot \tilde{T}_\ell\cdot(\mathsf{DFT}_2\otimes I_{\ell/2}),\]
+    note that $\mathsf{DFT}_2$ and $\tilde{T}_\ell$ are symmetric.
+    Similar to the DFT/NTT decompositions, $\mathsf{SF}_\ell$ expects its \emph{input} to be in bit-reversed order and produces normal-order output, while $\mathsf{SF}^\intercal_\ell$ expects normal-order input and produces bit-reversed-order output.
+
+    Note that (assuming proper use of bit-reversal), $U=[\mathsf{SF} | i\cdot \mathsf{SF}]$. When we apply $U$ in decoding, we split the input $y$ into the first half $y_1$ and second half $y_2$. Then $U\cdot y = \mathsf{SF}\cdot (y_1+i\cdot y_2)$.
+
+    Similarly the the encoding function can be described as
+    \[\frac{1}{N}\parens*{\overline{U}^\intercal\cdot z+U^\intercal \cdot \overline{z}}\cdot x = \frac{2}{N}\cdot (\mathfrak{Re}(\mathsf{SF}^\intercal\cdot x) | -\mathfrak{Im}(\mathsf{SF}^\intercal\cdot x)).\]
+
+\section{Multiplication}
+    \cite{cryptoeprint:2023/1788} shows how to reduce the modulus consumption of multiplication by decomposing ciphertexts into smaller components, akin to large-word multiplication: if $x_0,x_1$ are both $2k$ bits, we can write them as $x_i = 2^kx_{i,1} + x_{i,0}$. It's also a bit like composite scaling, since performance degrades quadratically in the size of the decomposition.
+    
+    The authors argue that using a decomposition of size two (i.e., as in the example above) halves modulus consumption, and thereby enables an application to use half the ring dimension (while maintaining the same number of levels as the original ring dimenison with regular multiplication).
+
+\section{Binary CKKS}
+    \cite{cryptoeprint:2022/1298} introduces exact binary operations using CKKS. \cite{cryptoeprint:2025/074} improves upon this to add free XOR gates. \cite{cryptoeprint:2024/767} introduces optimized bootstrapping for this special case of CKKS.
+    
+
+\ifcompileasbook
+\else
+    \printbibliography
+\fi
+	
+\end{document}

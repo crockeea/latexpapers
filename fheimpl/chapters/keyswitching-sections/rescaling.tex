@@ -1,0 +1,132 @@
+\documentclass[../keyswitching.tex]{subfiles}
+
+\title{Rescaling}
+\author{Eric Crockett}
+\begin{document}
+	\ifcompileasbook
+	\else
+	\maketitle
+	\listoffixmes
+	\fi
+
+\section{Rescaling}
+\label{sec:rescaling}
+Rescaling is an operation that divides a ciphertext by some constant $c$, rounding the result. Specifically, the goal is to convert $x\in \Z_Q$ to $y=\round{Q'/Q\cdot x}\in\Z_{Q'}$ for some integer $Q' \ge 2$. In all the cases we consider, $Q' \mid Q$, so let $\mathcal{B}\cup\mathcal{C}$ be the basis of $Q$ and $\mathcal{B}$ be the basis of $Q'$.
+In the CKKS scheme the main reason for rescaling is not to manage the noise, as in the case of the Brakerski-Gentry-Vaikuntanathan (BGV) scheme, but to scale down the encrypted message and truncate some least significant bits. This operation is used after (or before, if using~\cite{cryptoeprint:2020/1118}) multiplication to reduce the scale factor from $\Delta^2$ to $\Delta$. In this context in an RNS implementation, $\abs{\mathcal{C}}=1$. Rescaling is also used in key-switching, as described in~\cref{sec:ks-special-modulus}. In that context in an RNS implementation, $\mathcal{C}$ is the basis of the special primes, and $k=\abs{\mathcal{C}}\ge 1$.
+
+In the original (non-RNS) CKKS scheme~\cite{cryptoeprint:2016/421}, $q_\ell=p^\ell\cdot q_0$. This paper introduces a function $\mathrm{RS}_{\ell\leftarrow \ell'}(\mathbf{c}) = \round*{\frac{q_{\ell'}}{q_\ell}\mathbf{c}} \bmod q_{\ell'}$. This actually multiples (each coefficient of) the ciphertext by the rational $\frac{q_{\ell'}}{q_\ell}=p^{\ell'-\ell}$, and then rounds to the nearest integer. This algorithm assumes that the input is represented mod the full modulus $Q$. This is the algorithm used in the first two (non-RNS) bootstrapping papers for CKKS~\cite{cryptoeprint:2018/153, cryptoeprint:2018/1043}.
+
+When using RNS representation, an easy way to implement rescaling is via CRT reconstruction. Given an input in RNS representation, reconstruct it mod the full modulus $Q$, then divide and round the coefficients, and convert back to RNS representation. As with basis conversion, we seek an algorithm that allows us to rescale directly in RNS representation, without an expensive CRT reconstruction.
+
+\subsection{Algorithms}
+\label{sec:rescale-algs}
+We give three algorithms for rescaling. See~\cref{sec:rescaleextras} for a proof of equivalence.
+
+\subsubsection{Rescaling as Basis Conversion}
+In the RNS version of CKKS~\cite{cryptoeprint:2018/931} (also~\cite{cryptoeprint:2019/688, cryptoeprint:2016/510}), rescaling is defined for an RNS ring element $x\in R_{q_\ell}$ where $x=(x_0, x_1, \ldots, x_\ell)$. It defines $\mathrm{RS}(x) = \{q_\ell^{-1}\cdot (x_i-x_\ell)\bmod q_i\}_{0\le i<\ell}$. When applied component-wise to a ciphertext encrypting a message $m$ at level $\ell$, this algorithm outputs an encryption of $q_\ell^{-1}\cdot m\approx \Delta^{-1}\cdot m$ at level $\ell-1$. There is some error introduced due to the difference between $q_\ell$ and $\Delta$. This procedure computes the same thing as the rescale procedure in~\cite{cryptoeprint:2016/421}.
+
+The algorithm above requires multiple calls to remove multiple moduli, which is relevant in the context of key-switching. \cite{cryptoeprint:2019/688} (and possibly others) note that we can generalize this function using basis extension. It's not a different algorithm, but it does have a simple description. Let $\mathcal{B}\cup\mathcal{C}$ be the basis of the input modulus $Q$, and $\mathcal{B}$ be the basis of the output modulus $Q'$. 
+In short,~\cite{cryptoeprint:2019/688} describes \textrm{Rescale} as
+\[(\abs*{x}_\mathcal{B} - \mathrm{Conv}_{\mathcal{C}\rightarrow\mathcal{B}}(\abs*{x}_\mathcal{C}))\cdot \abs*{C^{-1}}_B,\]
+where $B$ (resp. $C$) is the product of the primes in the basis $\mathcal{B}$ (resp. $\mathcal{C}$), and $\abs*{x}_\mathcal{B}$ is a short-hand for $x$ in RNS representation with respect to basis $\mathcal{B}$.
+
+This is essentially the same as calling \textrm{Rescale} multiple times, and it's easy to see when $\abs{\mathcal{C}}=1$ that this is identical to the algorithm from~\cite{cryptoeprint:2018/931}. Any basis conversion algorithm from~\cref{sec:basisext} can be used to implement $\mathrm{Conv}_{\mathcal{C}\rightarrow\mathcal{B}}$, and the complexity of this operation is $|\mathcal{B}|$ plus that of the basis conversion algorithm.
+
+\subsubsection{(Fast) Scaling in CRT Representation}
+\label{sec:fastscaling}
+\cite{cryptoeprint:2018/117} gives yet another algorithm for rescaling, based on floating-point arithmetic. 
+For this functionality, we consider a third CRT reconstruction formula:
+\[\bracks*{x}_Q=\parens*{\sum_{i=1}^k x_i\cdot\tilde{Q}_i\cdot Q_i^*}-v'\cdot Q\in\Z\]
+
+Note: $x_i, \tilde{Q}_i \in [-q_i/2, q_i/2)$ and $Q_i^* = Q/q_i \in \Z$, so the product $x_i\cdot\tilde{Q}_i\cdot Q_i^* \in [-\frac{q_i^2}{4}\frac{Q}{q_i}, \frac{q_i^2}{4}\frac{Q}{q_i})= [-\frac{q_i\cdot Q}{4}, \frac{q_i\cdot Q}{4})$. 
+
+Suppose we want to ``scale down'' $x$ by a $Q'/Q$ factor, i.e., to compute $y=\round{Q'/Q\cdot x}\in\Z_t$ (where we assume $Q' \mid Q$). Then~\cite{cryptoeprint:2018/117} shows that we can use the reconstruction formula above to write: 
+
+\[\round*{Q'/Q\cdot \bracks*{x}_Q} \equiv \round*{\sum_{i=1}^k \bracks{x_i}_{q_i}\cdot\parens*{\tilde{Q}_i\cdot\frac{Q'}{q_i}}} \bmod Q'\]
+
+Note that this formula assumes the input is in RNS form, and the output is a standard integer mod $Q'$. We can get the output in RNS form by computing the sum multiple times as
+
+\[\round*{\sum_{i=1}^k \bracks{x_i}_{q_i}\cdot\parens*{\tilde{Q}_i\cdot\frac{Q'}{q_i}}} \bmod t\]
+for each $t$ in the basis of $Q'$.
+
+As in~\cref{sec:fastextension}, we write $\tilde{Q}_i\cdot\frac{Q'}{q_i}$ as $\omega_i+\theta_i$ with $\omega_i\in\Z_t$ and $\theta_i\in[0, 1)$.\footnote{Note that the exact range of $\theta_i$ does not impact the computation; we can use $\theta_i\in[0, 1)$ with canonical or standard representatives/nearest-integer or floor rounding. The purpose of splitting the constant is to ensure higher precision of the computation.} 
+We can precompute the $v=\round{\sum_i \bracks*{x_i}_{q_i}\theta_i}\in\Z$ using floating-point arithmetic\footnote{Note that the rounding strategy here should match the rounding strategy of the output, i.e., $\round{\cdot}$ if using canonical representatives, and $\floor{\cdot}$ if using standard representatives.} and reuse this for each $t$ in the basis of $Q'$.
+Then we compute $w = \sum_i \parens*{\bracks*{x_i}_{q_i}\omega_i \bmod t}\in\Z_t$ using integer arithmetic, and output $w+(v\bmod t)\in\Z_t$.
+
+This algorithm also works with standard representatives:
+\[\floor{Q'/Q\cdot x} \equiv \floor*{\sum_{i=1}^k \abs{x_i}_{q_i}\cdot\parens*{\tilde{Q}_i\cdot\frac{Q'}{q_i}}} \bmod Q'\]
+This requires rounding $v$ with $\floor{\cdot}$.
+
+\subsection{Comparison}
+For now, we consider both basis conversion algorithms, plus the algorithm from~\cref{sec:fastscaling}. Note that when considering basis conversion algorithms, rescaling requires conversion \emph{from} $\mathcal{C}$ \emph{to} $\mathcal{B}$, which is backwards from the standard notation of basis conversion.
+
+Using Garner's algorithm, we can achieve rescaling in $\mathcal{O}(|\mathcal{C}|^2+|\mathcal{B}||\mathcal{C}|)$ (the extra $|\mathcal{B}|$ term is subsumed by larger terms).
+
+Using FBC, we can achieve rescaling in $\mathcal{O}(|\mathcal{B}|+|\mathcal{B}||\mathcal{C}|)$ (but the constant in front of $|\mathcal{B}|$ is now at least 2).
+
+Using~\cref{sec:fastscaling}, we can achieve rescaling in $\mathcal{O}(\abs{C}+\abs{B}\cdot \abs{C})$. We should prefer this over FBC, especially since $\abs{C}$ is typically very small.
+
+\subsection{Rescaling with Standard Representatives}
+Many software libraries natively use the ``standard representative'' $\abs{x}_q\in [0, q)$ as the $\Z$-representative of an element of $\Z_q$, rather than the canonical representative in $\bracks{x}_q\in [\ceil{-q/2}, \floor{q/2})$. With this notation, we can now consider rescaling with standard representatives.
+
+If $\abs{x_\ell}_{q_\ell} \le \floor{q_\ell/2}$, then $\abs{x_\ell}_{q_\ell}=\bracks{x_\ell}_{q_\ell}$, hence nothing changes. 
+
+If, $\abs{x_\ell}_{q_\ell} > \floor{q_\ell/2}$, $\abs{x_\ell}_{q_\ell} = \bracks{x_\ell}_{q_\ell}+q_\ell$. Now $\frac{x-\abs{x_\ell}_{q_\ell}}{q_\ell} = \frac{x-\bracks{x_\ell}_{q_\ell}-q_\ell}{q_\ell} = \frac{x-\bracks{x_\ell}_{q_\ell}}{q_\ell} - 1$.
+
+Thus, if we rescale with the standard representative, we need to adjust the output by adding 
+\[\hat{x_\ell} = \begin{cases}
+	0 & \abs{x_\ell}_{q_\ell} \le \floor{q/2} \\
+	1 & \abs{x_\ell}_{q_\ell} > \floor{q/2}
+\end{cases}\]
+
+With this definition, we can succinctly define rescaling of a single element in the standard basis as $q_\ell^{-1}\cdot(x-\abs{x_\ell}_{q_\ell})+\hat{x_\ell} \bmod Q_{\ell-1}$.
+
+\subsubsection{Rescaling with Floor}
+\label{sec:roundingerr}
+We can view rescaling with standard representatives as rescaling with floor rounding instead of nearest-integer rounding. This is pretty easy to see: the standard representative is just the remainder, hence $\frac{x-\abs{x}_q}{q} = \floor{x/q}$. This definition of rescale introduces some additional error, as explored below.
+
+In key switching, we round the \emph{ciphertext}. Thus rounding error is applied \emph{to the ciphertext}, not to the message. In other words, after rounding, the decryption equation becomes
+\[(c_0 + e_\mathrm{round})\cdot s + (c_1 + e_\mathrm{round}) = m + e_\mathrm{ct} + s\cdot e_\mathrm{round} +e_\mathrm{round}\]
+
+We generally ignore the isolated $e_\mathrm{round}$ term since it is small relative to $s\cdot e_\mathrm{round}$.
+
+When performing nearest-integer rounding, $e_\mathrm{round}$ has coefficients in $[-\frac{1}{2}, \frac{1}{2})$. When performing floor rounding, $e_\mathrm{round}$ has coefficients in $[0, 1)$, hence using floor essentially doubles the rounding error compared to using nearest-integer.
+
+\subsection{Implementation}
+For the purposes of key-switching, we want to remove the special primes and scale down by their product. \Cref{alg:rescale} implements the removal of a single prime; this algorithm is iterated to remove multiple primes. In the implementation, we assume that the input is in RNS form, and that we want to remove and scale down by the last prime.
+
+\begin{algorithm}
+	\caption{Rescale}\label{alg:rescale}
+	\begin{algorithmic}[1]
+		\Procedure{Rescale}{$x=(x_0, x_1, \ldots, x_\ell)$, $\mathcal{B}=(q_0, q_1, \ldots, q_\ell)$}
+		\For{$i$ in range$(\ell)$}
+		\State $q_\ell^{-1} \gets $ pow($q_\ell$, -1, $q_i$)
+		\State $x_i \gets (x_i - x_\ell)\cdot q_\ell^-1$
+		\EndFor
+		\State \Comment Do the fixup if $x_i=\abs{x}_{q_i}$ \emph{and} you want $\round{\cdot}$
+		\State fixup $\gets$ [1 if $x_\ell[i]>\floor{q_\ell/2}$ else 0 for $i$ in range($N$)]
+		\Comment Skip the fixup if you want $\floor{\cdot}$ or if $x_i=\bracks{x}_{q_i}$
+		\For{$i$ in range$(\ell)$}
+		\State $x_i \gets x_i +$ fixup
+		\EndFor
+		
+		\State \Return $(x_0, x_1, \ldots, x_{\ell-1}$
+		\EndProcedure
+	\end{algorithmic}
+\end{algorithm}
+
+This extends component-wise to ring elements.
+
+\subsubsection{A Word on ModDown}
+Liberate-FHE includes both a \textrm{rescale} function and a \textrm{mod\_down} function. Mathematically, these should be the same function. However, there are some semantic differences, as well as a practical implementation difference. 
+
+Semantically, \textrm{rescale} divides the input by a \emph{normal} prime, strips that prime from the (composite) modulus, and returns an output at the next level. \textrm{mod\_down}, on the other hand, is about removing \emph{special} primes from a ``scaled-up'' input. The output is at the same level as the input, since no normal primes were lost. Hence \textrm{rescale} is called after (or before) a multiplication, while \textrm{mod\_down} is used in key-switching.
+
+Liberate-FHE also (arbitrarily) chose to implement \textrm{rescale} with nearest-integer rounding, while \textrm{mod\_down} is implemented with \textrm{floor} rounding.
+
+\ifcompileasbook
+\else
+\printbibliography
+\fi
+
+\end{document}

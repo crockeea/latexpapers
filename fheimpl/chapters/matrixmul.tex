@@ -1,0 +1,37 @@
+\documentclass[../fheimpl.tex]{subfiles}
+
+\title{CKKS Homomorphic Encryption}
+\author{Eric Crockett}
+
+\begin{document}
+\ifcompileasbook
+\else
+\maketitle
+\listoffixmes
+\fi
+
+\section{Native Operations}
+    \begin{itemize}
+        \item Slot-wise addition/subtraction
+        \item Slot-wise multiplication
+        \item Slot-wise conjugation
+        \item Slot-wise multiplication by $i$
+        \item Cyclic rotation of slots		
+    \end{itemize}
+
+
+\section{Matrix Multiplication}
+This section covers (application-layer) matrix multiplication.
+
+\begin{itemize}
+    \item Shai did some work on multiplication via diagonals.
+    \item \cite{cryptoeprint:2020/1483} My paper
+    \item HETAL \cite{10.5555/3618408.3619194} improves on my work and gets a factor of 2-3x improvement.
+\end{itemize}
+
+    \ifcompileasbook
+    \else
+    \printbibliography
+    \fi
+	
+\end{document}

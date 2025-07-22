@@ -1,0 +1,155 @@
+\documentclass{article}
+
+\input{headers/head.tex}
+% comment out to remove fixmes
+\fxsetup{status=draft}
+
+
+\title{Understanding Pre-Extension Modular Reductions}
+\author{Eric Crockett}
+\date{Last Updated \today}
+\begin{document}
+    \maketitle	
+    \listoffixmes
+    
+\section{Notation}
+We represent $x\in \Z_q$ by its \emph{canonical representative} $\bracks{x}_q\in[\ceil{-q/2},\floor{q/2})\subset\Z$. We also use the \emph{standard representative} $\abs{x}_q\in[0,q)\subset \Z$.
+
+Most homomorphic encryption implementations utilize the Chinese Remainder Theorem (CRT) to represent integers mod a large modulus as several integers mod small moduli. This representation is known as the Residue Number System (RNS) to avoid confusion with other uses of the CRT in lattice cryptography. Let $q_0, \ldots, q_{k-1}$ be co-prime moduli, and let $Q_j=\prod_{i=0}^j q_i$. Define $Q:=Q_{k-1}$ and $Q_{-1}:=1$. We denote $Q^*_i=Q/Q_i\in \Z$ and $\tilde{Q}_i=(Q^*_i)^{-1}\in\Z_{q_i}$. In CRT/RNS, we identify $x\bmod Q$ with $(x_0, \ldots, x_{k-1})$ where $x_i\in\Z_{q_i}$. 
+We can reconstruct $x=\abs{x}_Q$ as $\sum_{i=0}^{k-1}\abs{x_i}_{q_i}\cdot\tilde{Q}_i\cdot Q^*_i\bmod Q$. We call $\set{q_0, q_1, \ldots, q_{k-1}}$ the \emph{RNS basis} of $x$. By ``an element $x$ in basis $\mathcal{B}$'', we mean $x$ in RNS form with respect to the moduli contained in $\mathcal{B}$. By the Chinese Remainder Theorem (CRT), there is precisely one integer $x$ such that $x$ in basis $\mathcal{B}$ is $(x_0, x_1, \ldots, x_{k-1})$.
+
+\section{Basis Conversion}
+One of the fundamental operations required for key-switching is \emph{basis conversion}. Let $\mathcal{B}=\set{q_k}_{0\le i<k}$ be a basis, and $x\in \Z_Q$ be represented in basis $\mathcal{B}$. By ``basis conversion'', we mean that we wish to find $\bracks{x}_Q$ in basis $\mathcal{C}$ (which we assume is disjoint from $\mathcal{B}$). We denote this as $\mathrm{Conv}_{\mathcal{B}\rightarrow\mathcal{C}}(\cdot)$. One simple way to do this is to compute $\bracks{x}_Q$ over the integers, and then reduce it mod $p_i$ for each $p_i\in\mathcal{C}$. However, computing the CRT reconstruction over the integers may require BigInteger arithmetic, so we seek to convert $x$ in basis $\mathcal{B}$ to $\bracks{x}_Q$ in basis $\mathcal{C}$ \emph{directly}, without doing a full CRT reconstruction of $x$. Note that we can obtain basis \emph{extension} by concatenating the CRT components of disjoint bases $\mathcal{B}$ (i.e., the input) and $\mathcal{C}$ (i.e., the output); we generally use these terms interchangeably.
+
+\subsection{Garner's Algorithm}
+Liberate-FHE uses a tweak of Garner's Algorithm~\cite[Section 5.6]{geddes1992algorithms} for basis conversion, which is based on the mixed-radix CRT reconstruction algorithm:
+\[x=\sum_{i=0}^{k-1}\bracks{c_i}_{q_i}\cdot Q_{i-1}\in\Z,\]
+where
+\[c_i=\parens*{x_i-\sum_{j=0}^{i-1}\bracks{c_j}_{q_j}\cdot\bracks{Q_{j-1}}_{q_i}}\cdot Q_{i-1}^{-1}\in\Z_{q_i}.\]
+
+Note that the $c_i$ can be computed without the use of BigInteger arithmetic since all individual terms are reduced mod $q_i$, and all of the arithmetic is in $\Z_{q_i}$.
+
+For the purposes of basis extension, we are interested in computing $\bracks{x}_p$ for some $p\in\mathcal{C}$. Since the sum for $x$ is over the integers,
+\begin{align}
+\bracks{x}_p&=\bracks*{\sum_{i=0}^{k-1}\bracks{c_i}_{q_i}\cdot Q_{i-1}}_p\\
+            &\equiv \sum_{i=0}^{k-1}\bracks{c_i}_{q_i}\cdot\bracks{Q_{i-1}}_p\bmod p,
+\end{align}
+where $\bracks{Q_{i-1}}_p$ can be pre-computed. This gives us a way to compute $\bracks{x}_p$ without using BigInteger arithmetic since each term is mod a small prime, the product is mod $p$, and the sum is mod $p$.
+
+This algorithm has two steps:
+\begin{enumerate}
+    \item Compute the $c_i$
+    \item Compute $\bracks{x}_p$ for each $p\in\mathcal{C}$
+\end{enumerate}
+
+The first step is inherently quadratic in $\abs{\mathcal{B}}$. The second step is linear for each $p\in\mathcal{C}$, giving an overall cost of $\mathcal{O}(\abs{\mathcal{B}}^2+\abs{\mathcal{B}}\cdot\abs{\mathcal{C}}).$
+
+The algorithm is described over the integers, but it trivially extends component-wise to ring elements. Also note that this algorithm is described using the canonical representative, but it works equally well with standard representatives.
+
+\subsection{Liberate-FHE Implementation}
+See~\cref{alg:preextend} for DESILO's implementation of the first step in basis extension, which they call \textsf{pre\_extend}.
+
+\begin{listing}
+\begin{minted}[frame=single,linenos]{cpp}
+void pre_extend(int64_t *c_2, int64_t *pre_extended, std::vector<int> partition,
+                std::vector<int64_t> q_product_inverse_mult_r,
+                std::vector<std::vector<int64_t>> q_product_mult_r,
+                int log_coeff_count) {
+  int coeff_count = 1 << log_coeff_count;
+
+  const auto q = get_q(log_coeff_count).data();
+  const auto q_double = get_q_double(log_coeff_count).data();
+  const auto k = get_k(log_coeff_count).data();
+
+  auto partition_start_index = partition[0];
+  auto partition_start = &c_2[partition_start_index * coeff_count];
+  for (auto index = 0; index < partition.size(); index++) {
+    std::memcpy(&pre_extended[index * coeff_count], partition_start,
+                sizeof(int64_t) * coeff_count);
+  }
+
+  for (auto index = 0; index < partition.size() - 1; index++) {
+    auto offset = (index + 1) * coeff_count;
+    auto x = &partition_start[offset];
+    auto y = &pre_extended[offset];
+    auto depth = partition_start_index + index + 1;
+    auto chain_count = 1;
+    mont_sub(x, y, y, &q_double[depth], 1, coeff_count);
+    mont_enter(y, y, &q_product_inverse_mult_r.data()[index], &q[depth],
+               &k[depth], chain_count, coeff_count);
+    reduce_2q_to_q(y, y, &q[depth], chain_count, coeff_count);
+
+    if (index + 2 < partition.size()) {
+      depth += 1;
+      chain_count = partition.size() - index - 2;
+      auto z = &y[coeff_count];
+      mont_enter_tiled_add(y, z, q_product_mult_r[index].data(), &q[depth],
+                           &k[depth], chain_count, coeff_count);
+      reduce_2q_to_q(z, z, &q[depth], chain_count, coeff_count);
+    }
+  }
+}
+\end{minted}
+\caption{Implementation of \textsf{pre\_extend} provided by DESILO on June 10, 2025}
+\label{alg:preextend}
+\end{listing}
+
+\subsubsection{Invariants}
+For correctness, we require that the inputs to \textsf{pre\_extend} are reduced to the range $[0, q_i)$ for each $q_i$. In Liberate-FHE, this is done in \textsf{create\_key\_switcher}.
+
+\cref{alg:preextend} builds the $c_i$ one term of the sum at a time. Specifically, \textsf{pre\_extend} should maintain the following invariants at the start of iteration $i$ (named \textsf{index} in the code):
+\begin{itemize}
+    \item $\mathsf{pre\_extended}_j$ holds $\bracks{c_j}_{q_j}$ for $j\le i$
+    \item $\mathsf{pre\_extended}_j$ holds $\sum_{k=0}^i\bracks{c_k}_{q_j}\cdot\bracks{Q_{k-1}}_{q_j}$ for $j>i$
+\end{itemize}
+
+Then in iteration $i$, \textsf{pre\_extend} computes
+\begin{align}
+    \mathsf{pre\_extended}_{i+1}&=\bracks{\parens{\mathsf{partition}_{i+1}-\mathsf{pre\_extended}_{i+1}}\cdot Q_i^{-1}}_{q_i}\\
+    &=\bracks*{\parens*{\mathsf{partition}_{i+1}-\sum_{k=0}^i \bracks{c_k}_{q_{i+1}}\cdot\bracks{Q_{k-1}}_{q_{i+1}}}\cdot Q_i^{-1}}_{q_i} \\
+    &=\bracks{c_i}_{q_i}
+\end{align}
+This maintains the first invariant. The \textsf{if} block maintains the second invariant. We note that \emph{mathemtaically}, the reduction on line 35 is not strictly required, as the value at this point is still in the ring $\Z_{q_i}$, not lifted to the integers.
+
+\subsubsection{Details}
+We work backwards from the required output to determine 
+
+As noted above, the output of \textsf{pre\_extend} must be in the range $[0,q_i)$ for each modulus. This is ensured on line 27, assuming the output of \textsf{mont\_enter} on line 25 is in $[0, 2\cdot q_i)$. Fortunately, \textsf{mont\_enter} is quite forgiving in this regard: as long as the input is in $[0, R\cdot q_i)$, the output will be in $[0, 2\cdot q_i)$. We multiply \textsf{y} by \textsf{q\_product\_inverse\_mult\_r}, which is a pre-computed value in $[0, q_i)$. Therefore, we require $0\le y \le R$ coming into line 25. On line 24, recall that $x\in[0, q_i)$, and \textsf{mont\_sub} computes $x + 2q_i - y$. We therefore require that $y\le 2q_i$: if $y>2q_i$, $x + 2q_i - y$ could have a negative coefficient, which will produce a negative output in \textsf{mont\_enter}, which will not be corrected by \textsf{reduce\_2q\_to\_q}. \textsf{y} comes from the output of the \textsf{if} block, hence we jump there next.
+
+On line 35, we require the output to be $\le 2q_i$, as noted above. This implies that the input to line 35 must be $\le 3q_i$. Line 33 computes $z+y\cdot q_i$, where $y\in [0,q_i)$ by the first invariant. In theory, Montgomery multiplication and reduction will produce $y\cdot q_i$ in the range $[0, 2q_i)$. In practice, the Montgomery multiplication will be (at most) \emph{slightly} larger than $q_i$ itself. Thus the output of \textsf{mont\_enter\_tiled\_add} will be (at most) \emph{slightly} larger than $2q_i$, and the reduction on line 35 brings this back down to \emph{slightly} larger than $q_i$. The overall correctness depends on the value of ``slightly''; see the next subsection for details. The short version is that ``slightly'' here is \emph{miniscule}, and our partitions are not big enough for the extra bits to add up to anything meaningful. Even for parameters where $k=L$, we wouldn't be even close to having this extra accumulate to > 2.
+
+Thus:
+\begin{enumerate}
+    \item The reduction on line 35 is \emph{necessary}. Without it, $y$ grows too large, which results in negative values in the subtraction on line 21, which are not fixed by the reduction on line 27 (which is supposed to output a non-negative value).
+    \item The reduction on line 35 is \emph{sufficient}. A conditional subtraction by $2q_i$ would also suffice, but it is not necessary, as demonstrated by the math in the next section. 
+\end{enumerate}
+
+Roughly: without the reduction, the range of $z[0] \le 2^{40}+(1+2^{-22})\cdot(\mathsf{index}+1)\approx (\mathsf{index}+2)\cdot q_i$. For partitions with at least three elements, it is possible for this to exceed $2q_i$, which would cause failure in the subtraction as shown above.
+
+With the reduction, $z[0]$ is bounded to slightly more than $q_i$ (even for very large partitions).
+
+\subsubsection{Probability}
+Suppose $x$ is uniform in $[0, a]$ and $c$ is a constant in $[0, q)$. We wish to know $\Pr[\mathsf{MontRedc}(y\cdot c) \ge q]$. 
+Let $m=((T\bmod R)\cdot (-q^{-1}\bmod R))\bmod R$. \textsf{MontRedc} outputs $\frac{y\cdot c + m\cdot q}{R} < \frac{q(y+m)}{R}$. Then
+\begin{align}
+    \Pr[\mathsf{MontRedc}(y\cdot c) \ge q] &= \Pr\bracks*{\frac{y\cdot c + m\cdot q}{R} \ge q} \\
+    &\le \Pr\bracks*{\frac{q(y+m)}{R} \ge q} \\
+    &= \Pr[y+m\ge R]
+\end{align}
+
+We model $y$ and $m$ as random variables $X\in[0, a)$ and $Y\in[0,R)$, respectively.
+
+\begin{align}
+    \Pr[X+Y\ge R] &= \Pr[X+Y\ge R\ |\ Y\le R-a] + \Pr[X+Y\ge R\ |\ Y> R-a]\\
+    &= \Pr[X+Y\ge R\ |\ Y> R-a] \\
+    &= \frac{1}{R}\sum_{y=R-a+1}^{R-1}\Pr[X+Y\ge R\ |\ Y=y] \\
+    &= \frac{1}{R}\sum_{y=R-a+1}^{R-1}\Pr[X\ge R-y] \\
+    &= \frac{1}{R}\sum_{z=0}^{a-2}\Pr[X\ge a-1-z] \\
+    &= \frac{1}{aR}\sum{z=0}^{a-2}{z+1} \\
+    &= \frac{1}{aR}\cdot\frac{(a-1)a}{2} \\
+    &< \frac{a}{2R}
+\end{align}
+Note the change of variable $z=y-(R-a+1)$.
+
+In our case, $a=2^{40}$ and $R=2^{62}$, hence the probability is bounded by $2^{-22}$. When we \emph{do} exceed $q$, the maximum value of the output of Montgomery reduction is $\le \frac{q(2^{40}+2^{62})}{2^{62}}=q+\frac{q}{2^{22}}$. In summary, in the rare event we do exceed $q$, it is only by a small amount.
+\end{document}

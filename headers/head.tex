@@ -15,7 +15,6 @@
 \usepackage{minted}
 \usepackage{caption}
 \usepackage{float}
-\usepackage{wrapfig}
 
 % Make cleveref refer to appendices as appendices (not sections)
 % https://github.com/latex3/hyperref/issues/362
@@ -50,4 +49,12 @@
 % custom operators/commands
 \DeclareMathOperator*{\mdash}{\text{-}}
 \DeclareMathOperator*{\argmin}{arg\,min}
-\newcommand{\blockquote}[1]{\vspace{0.5em}\begin{tabularx}{\textwidth}{|X}#1\end{tabularx}\vspace{0.5em}}
+%\newcommand{\blockquote}[1]{\vspace{0.5em}\begin{tabularx}{\textwidth}{|X}#1\end{tabularx}\vspace{0.5em}}
+
+\newcommand{\blockquote}[1]{%
+	\vspace{0.5em}%
+	\noindent\begin{tabularx}{\textwidth}{|@{\hspace{0.75em}}X}%
+		#1
+	\end{tabularx}%
+	\vspace{0.5em}%
+}

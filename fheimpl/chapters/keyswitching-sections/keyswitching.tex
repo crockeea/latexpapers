@@ -1,12 +1,16 @@
-\documentclass[../keyswitching.tex]{subfiles}
+% !TeX root = ../../fheimpl.tex
+\documentclass[../../fheimpl.tex]{subfiles}
 
-\title{Key Switching}
-\author{Eric Crockett}
 \begin{document}
 	\ifcompileasbook
 	\else
+	\title{Key Switching}
+	\hypersetup{pageanchor=false}
 	\maketitle
 	\listoffixmes
+	\tableofcontents
+	\compileasbooktrue
+	\hypersetup{pageanchor=true}
 	\fi
 
 \section{Key Switching}

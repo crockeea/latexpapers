@@ -1,13 +1,15 @@
 \documentclass[../fheimpl.tex]{subfiles}
 
-\title{CKKS Bootstrapping}
-\author{Eric Crockett}
-
 \begin{document}
     \ifcompileasbook
     \else
+    	\title{CKKS Bootstrapping}
+        \hypersetup{pageanchor=false}
         \maketitle
         \listoffixmes
+        \tableofcontents
+        \compileasbooktrue
+        \hypersetup{pageanchor=true}
     \fi
 
     \section{Introduction}
@@ -27,7 +29,7 @@
     
     Since we seek an encryption of $m(X) \bmod Q'$ (for some $Q'$ hopefully only slightly smaller than $Q$), we need to evaluate reduction mod $q$ on the coefficients of $t(X)$. But homomorphic evaluation works on the \emph{slots} of $t(X)$, not the coefficients of $t(X)$. Therefore, we need to somehow get the coefficients of $t(X)$ into the slots of one or more ciphertexts. Since $t(X)$ has $N$ coefficients and a ciphertext has $N/2$ slots, we will in fact put the coefficients of $t(X)$ into exactly two ciphertexts. The CKKS encoding function $\tau^{-1}$ is specifically for transforming a vector of coefficients (say, half of the coefficients of $t(X)$) into a plaintext polynomial which encodes that vector in its slots.  
     
-    \textbf{CoeffsToSlots} After the ModRaise step, $ct$ encrypts $t(X)\bmod Q$, which encodes some plaintext vector $z$ in its slots. Note that if we had $z$ as a plaintext vector and then encoded it, the result would be $t(X)$, i.e., $z=\tau(t(X))$. The process, then is to \emph{homomorphically} apply the encoding function to the ModRaised ciphertext, which will (roughly) put the coefficients $t(X)$ into the \emph{slots} of the ciphertext. As noted above, we need to split this process into two pieces since there are twice as many coefficients as slots. 
+    \textbf{CoeffsToSlots} After the ModRaise step, $ct$ encrypts $t(X)\bmod Q$, which encodes some plaintext vector $z$ in its slots. Note that if we had $z$ as a plaintext vector and then encoded it, the result would be $t(X)$, i.e., $z=\tau(t(X))$. The process, then, is to \emph{homomorphically} apply the encoding function to the ModRaised ciphertext, which will (roughly) put the coefficients $t(X)$ into the \emph{slots} of the ciphertext. As noted above, we need to split this process into two pieces since there are twice as many coefficients as slots. 
     
     Logically, split the coefficients of $t(X)$ into $t_0, t_1\in\Z^{N/2}\subset\C^{N/2}$. We can divide $U$ into $U_0$ and $U_1$, where $U_0$ is the left $\frac{N}{2}\times\frac{N}{2}$ submatrix of $U$, and $U_1$ is the right submatrix. Then
     \[t_k = \frac{1}{N}\parens*{\overline{U_k}^\intercal\cdot z + U_k^\intercal\cdot\overline{z}}.\]
@@ -97,7 +99,7 @@
     
     In~\cite{cryptoeprint:2018/1043} Chebyshev interpolants are used to approximate the scaled sin function over the entire range, rather than a Taylor series over a smaller range (expanded via double-angle formulas). This is a more direct approach, and they show that the result has less error and requires less multiplicative depth.
     
-    \cite{cryptoeprint:2019/688} points out that the papers above aim to approximate sin in a global sense, but that this is unnecessary: $t/q$ is close to an integer\enote{why? \cite{cryptoeprint:2021/572} makes mention of this, and says that it was observed in~\cite{cryptoeprint:2018/153}}, which is why approximating modular reduction by sin is reasonable in the first place. They improve on~\cite{cryptoeprint:2018/1043} by choosing custom evaluation points for the Chebyshev interpolant, rather than using Chebyshev nodes. This approach yields much smaller error. This paper switches to the use of cosine instead of sine, and introduces a hybrid tradeoff between the double-angle approach of~\cite{cryptoeprint:2018/1043} and the ``full-range'' approximation approach of~\cite{cryptoeprint:2018/1043}. The goal with this approach is to minimize the total number of multiplications required to evaluate the polynomial.
+    \cite{cryptoeprint:2019/688} points out that the papers above aim to approximate sine in a global sense, but that this is unnecessary: $t/q$ is close to an integer\enote{why? \cite{cryptoeprint:2021/572} makes mention of this, and says that it was observed in~\cite{cryptoeprint:2018/153}}, which is why approximating modular reduction by sin is reasonable in the first place. They improve on~\cite{cryptoeprint:2018/1043} by choosing custom evaluation points for the Chebyshev interpolant, rather than using Chebyshev nodes. This approach yields much smaller error. This paper switches to the use of cosine instead of sine, and introduces a hybrid tradeoff between the double-angle approach of~\cite{cryptoeprint:2018/1043} and the ``full-range'' approximation approach of~\cite{cryptoeprint:2018/1043}. The goal with this approach is to minimize the total number of multiplications required to evaluate the polynomial.
     
     \cite{cryptoeprint:2020/488, cryptoeprint:2020/1355} dispense with the trigonometric functions and directly approximate modular reduction via least-squares and Lagrange interpolation, respectively. \cite{cryptoeprint:2020/1549} points out that these result in large coefficients (cf.~\cref{sec:small-approx-coeffs}), which results in numerically unstable evaluation. Nevertheless,~\cite{cryptoeprint:2020/1355} obtained 67 bits of message precision.
     
@@ -132,8 +134,9 @@
     This process can be iterated, and obviously increases the cost of bootstrapping by the number of iterations. The idea is that if the bootstrapping algorithm has $n$ bits of precision and we bootstrap the error as above (``two-fold bootstrapping''), we get a bootstrapping procedure with $2n$ bits of precision. In general, by bootstrapping the error $k$ times, we get a bootstrapping procedure with $kn$ bits of precision.
     
     \subsection{SlotsToCoeffs-First}
-    \cite{cryptoeprint:2022/1167, cryptoeprint:2024/1284} both mention an alternate ordering for the bootstrapping steps.~\cite[Footnote 3]{cryptoeprint:2024/1638} mentions that~\cite{cryptoeprint:2022/1167} introduces this ``slots bootstrapping'' technique, but that paper uses bootstrapping as a black box; probably that paper is a good place to dive deeper.
-    \enote{To investigate.}
+    \cite{cryptoeprint:2024/767} mentions an alternate ordering for the bootstrapping steps: SlotsToCoeffs first, then ModRaise, then CoeffsToSlots, and then EvalMod. This is in the context of bootstrapping bits. This is mentioned (without citation or explanation) in~\cite{cryptoeprint:2024/1284} and~\cite[Footnote 3]{cryptoeprint:2024/1638}. The latter credits~\cite{cryptoeprint:2022/1167} for this ``slots bootstrapping'' technique, but that paper uses bootstrapping as a black box. However,~\cite{cryptoeprint:2022/1167} does mention the modified order.
+    
+    It seems that~\cite{cryptoeprint:2024/767} is \emph{not} the root source for this technique, and that it is also not necessarily specific to bootstrapping bits.
     
     \subsection{Functional Bootstrapping}
     \cite{cryptoeprint:2024/1623, cryptoeprint:2024/1637, cryptoeprint:2024/1638} introduce functional bootstrapping (also known as programmable bootstrapping) for CKKS. \cite{cryptoeprint:2024/1623} seems to subsume the other two, and it essentially incorporates an approximation of the function to evaluate into the \textsf{EvalMod} step. Note that this applies the function to the polynomial coefficients, rather than the slots, though. This seems less-than-desirable. \enote{More to learn here.}

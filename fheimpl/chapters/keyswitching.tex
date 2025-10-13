@@ -1,13 +1,16 @@
-% !TeX root = ../fheimpl.tex
 \documentclass[../fheimpl.tex]{subfiles}
 
 \begin{document}
 	\newif\ifksismain
 	\ifcompileasbook
 	\else
-		\hypersetup{pageanchor=false}
 		\title{Key Switching}
-		\ksismaintrue
+		\hypersetup{pageanchor=false}
+		% Since we include subfiles from this file, we need some more complex control flow:
+		% We need to set compileasbook to True so that they don't print their own titles and bibliographies
+		% But if we set it to True, then *this* file won't print its bibliography. Thus we introduce ksismain 
+		% to control the printing of this file's bibliography.
+		\ksismaintrue 
 		\maketitle
 		\listoffixmes
 		\tableofcontents

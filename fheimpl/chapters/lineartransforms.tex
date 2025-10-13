@@ -1,13 +1,15 @@
 \documentclass[../fheimpl.tex]{subfiles}
 
-\title{Linear Transforms}
-\author{Eric Crockett}
-
 \begin{document}
     \ifcompileasbook
     \else
+    \title{Linear Transforms}
+	\hypersetup{pageanchor=false}
 	\maketitle
 	\listoffixmes
+	\tableofcontents
+	\compileasbooktrue
+	\hypersetup{pageanchor=true}
     \fi
 	
 	This chapter discusses how to apply a public linear transform to the slots of an encrypted vector. For ring-dimension $N$, we are interested in $\frac{N}{2}\times\frac{N}{2}$ linear transformations. In the most general form, any (complex-) linear transform on $z\in \C^{N/2}$ can be written as $A\cdot z+B\cdot \overline{z}$ for $A,B\in\C^{\frac{N}{2}\times\frac{N}{2}}$. The techniques described here apply to all linear transforms; we explore specific optimizations for the linear transforms used in bootstrapping in~\cref{ch:bootstrapping}.
@@ -29,7 +31,8 @@
 	where $d'_i = d_i \gg gk$. This only requires $g+h = \mathcal{O}(\sqrt{N})$ rotations, rather than the $\mathcal{O}(N)$ rotations required by~\cite{cryptoeprint:2014/106}.
 	
     \subsubsection{Hoisting}
-    Applying linear transforms involves rotating a given ciphertext many times. When we apply an automorphism $psi$, the output decrypts to $\psi(m)$ under the secret key $\psi(sk)$. As a result, after applying the automorphism, we do a key-switch to obtain a ciphertext that decrypts to $\psi(m)$ under $sk$. 
+    \label{sec:hoisting}
+    Applying linear transforms involves rotating a given ciphertext many times. When we apply an automorphism $\psi$, the output decrypts to $\psi(m)$ under the secret key $\psi(sk)$. As a result, after applying the automorphism, we do a key-switch to obtain a ciphertext that decrypts to $\psi(m)$ under $sk$. 
 	
 	If we're applying multiple automorphisms to the same input, we can improve the efficiency of this process by ``hoisting'' part of the key-switch above the application of the automorphism. \cite{cryptoeprint:2018/244} shows that the decomposition step and basis extension step in key-switching commute with the application of the automorphisms, so we can do the first half of key-switching \emph{once}, and then apply multiple automorphisms, and then finish the key switch on each rotated component. Note that this increases the number of automorphisms by the size of the decomposition, but applying an automorphism is much less expensive than the extra key-switches from the na\"ive approach.
 	

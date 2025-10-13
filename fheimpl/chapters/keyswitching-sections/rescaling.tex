@@ -1,12 +1,16 @@
-\documentclass[../keyswitching.tex]{subfiles}
+% !TeX root = ../../fheimpl.tex
+\documentclass[../../fheimpl.tex]{subfiles}
 
-\title{Rescaling}
-\author{Eric Crockett}
 \begin{document}
 	\ifcompileasbook
 	\else
+	\title{Rescaling}
+	\hypersetup{pageanchor=false}
 	\maketitle
 	\listoffixmes
+	\tableofcontents
+	\compileasbooktrue
+	\hypersetup{pageanchor=true}
 	\fi
 
 \section{Rescaling}
@@ -14,7 +18,7 @@
 Rescaling is an operation that divides a ciphertext by some constant $c$, rounding the result. Specifically, the goal is to convert $x\in \Z_Q$ to $y=\round{Q'/Q\cdot x}\in\Z_{Q'}$ for some integer $Q' \ge 2$. In all the cases we consider, $Q' \mid Q$, so let $\mathcal{B}\cup\mathcal{C}$ be the basis of $Q$ and $\mathcal{B}$ be the basis of $Q'$.
 In the CKKS scheme the main reason for rescaling is not to manage the noise, as in the case of the Brakerski-Gentry-Vaikuntanathan (BGV) scheme, but to scale down the encrypted message and truncate some least significant bits. This operation is used after (or before, if using~\cite{cryptoeprint:2020/1118}) multiplication to reduce the scale factor from $\Delta^2$ to $\Delta$. In this context in an RNS implementation, $\abs{\mathcal{C}}=1$. Rescaling is also used in key-switching, as described in~\cref{sec:ks-special-modulus}. In that context in an RNS implementation, $\mathcal{C}$ is the basis of the special primes, and $k=\abs{\mathcal{C}}\ge 1$.
 
-In the original (non-RNS) CKKS scheme~\cite{cryptoeprint:2016/421}, $q_\ell=p^\ell\cdot q_0$. This paper introduces a function $\mathrm{RS}_{\ell\leftarrow \ell'}(\mathbf{c}) = \round*{\frac{q_{\ell'}}{q_\ell}\mathbf{c}} \bmod q_{\ell'}$. This actually multiples (each coefficient of) the ciphertext by the rational $\frac{q_{\ell'}}{q_\ell}=p^{\ell'-\ell}$, and then rounds to the nearest integer. This algorithm assumes that the input is represented mod the full modulus $Q$. This is the algorithm used in the first two (non-RNS) bootstrapping papers for CKKS~\cite{cryptoeprint:2018/153, cryptoeprint:2018/1043}.
+In the original (non-RNS) CKKS scheme~\cite{cryptoeprint:2016/421}, $q_\ell=p^\ell\cdot q_0$. This paper introduces a function $\mathrm{RS}_{\ell\leftarrow \ell'}(\mathbf{c}) = \round*{\frac{q_{\ell'}}{q_\ell}\mathbf{c}} \bmod q_{\ell'}$. This actually multiplies (each coefficient of) the ciphertext by the rational $\frac{q_{\ell'}}{q_\ell}=p^{\ell'-\ell}$, and then rounds to the nearest integer. This algorithm assumes that the input is represented mod the full modulus $Q$. This is the algorithm used in the first two (non-RNS) bootstrapping papers for CKKS~\cite{cryptoeprint:2018/153, cryptoeprint:2018/1043}.
 
 When using RNS representation, an easy way to implement rescaling is via CRT reconstruction. Given an input in RNS representation, reconstruct it mod the full modulus $Q$, then divide and round the coefficients, and convert back to RNS representation. As with basis conversion, we seek an algorithm that allows us to rescale directly in RNS representation, without an expensive CRT reconstruction.
 
@@ -81,16 +85,24 @@ Thus, if we rescale with the standard representative, we need to adjust the outp
 
 With this definition, we can succinctly define rescaling of a single element in the standard basis as $q_\ell^{-1}\cdot(x-\abs{x_\ell}_{q_\ell})+\hat{x_\ell} \bmod Q_{\ell-1}$.
 
+\subsubsection{Rounding Error}
+\label{sec:rescale_error}
+Given a ciphertext $(a,b)$ encrypting a message $m$, our true goal is to output an encryption of $m/q$ for some $q$. Clearly, $\parens*{\frac{a}{q}, \frac{b}{q}}$ is what our new ciphertext should be. However, these don't have integral coefficients, so we instead output $\parens*{a'=\round*{\frac{1}{q}\cdot a}=\parens*{\frac{1}{q}\cdot a}+e^\mathsf{round}_a, b'=\round*{\frac{1}{q}\cdot b}=\parens*{\frac{1}{q}\cdot b}+e^\mathsf{round}_b}$, where the error terms have coefficients in $[-1/2, 1/2]$ if rescaling with canonical representatives.
+
+Initially, $a\cdot s+b\approx m+e_\mathsf{CT}$. After rescaling, 
+\begin{align}
+	a'\cdot s+b' &=\parens*{\parens*{\frac{1}{q}\cdot a}+e^\mathsf{round}_a}\cdot s + \parens*{\frac{1}{q}\cdot b}+e^\mathsf{round}_b \\
+	&= \parens*{\frac{1}{q}\cdot a}\cdot s + \parens*{\frac{1}{q}\cdot b} + e^\mathsf{round}_a\cdot s +e^\mathsf{round}_b \\
+	&\approx  \parens*{\frac{1}{q}\cdot m} + \frac{e_\mathrm{CT}}{q} + e^\mathsf{round}_a\cdot s +e^\mathsf{round}_b
+\end{align}
+
+We generally ignore the isolated $e^\mathsf{round}_b$ term since it is small relative to $e^\mathsf{round}_a\cdot s$. As long as $s$ is small (which is typically the case), then this term doesn't contribute much to the overall error, either.
+
 \subsubsection{Rescaling with Floor}
 \label{sec:roundingerr}
 We can view rescaling with standard representatives as rescaling with floor rounding instead of nearest-integer rounding. This is pretty easy to see: the standard representative is just the remainder, hence $\frac{x-\abs{x}_q}{q} = \floor{x/q}$. This definition of rescale introduces some additional error, as explored below.
 
-In key switching, we round the \emph{ciphertext}. Thus rounding error is applied \emph{to the ciphertext}, not to the message. In other words, after rounding, the decryption equation becomes
-\[(c_0 + e_\mathrm{round})\cdot s + (c_1 + e_\mathrm{round}) = m + e_\mathrm{ct} + s\cdot e_\mathrm{round} +e_\mathrm{round}\]
-
-We generally ignore the isolated $e_\mathrm{round}$ term since it is small relative to $s\cdot e_\mathrm{round}$.
-
-When performing nearest-integer rounding, $e_\mathrm{round}$ has coefficients in $[-\frac{1}{2}, \frac{1}{2})$. When performing floor rounding, $e_\mathrm{round}$ has coefficients in $[0, 1)$, hence using floor essentially doubles the rounding error compared to using nearest-integer.
+When performing nearest-integer rounding, $e^\mathsf{round}$ has coefficients in $[-\frac{1}{2}, \frac{1}{2})$. When performing floor rounding, $e^\mathsf{round}$ has coefficients in $[0, 1)$, hence using floor essentially doubles the rounding error compared to using nearest-integer.
 
 \subsection{Implementation}
 For the purposes of key-switching, we want to remove the special primes and scale down by their product. \Cref{alg:rescale} implements the removal of a single prime; this algorithm is iterated to remove multiple primes. In the implementation, we assume that the input is in RNS form, and that we want to remove and scale down by the last prime.

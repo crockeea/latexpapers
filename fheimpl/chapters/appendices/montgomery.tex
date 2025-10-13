@@ -1,13 +1,15 @@
 \documentclass[../fheimpl.tex]{subfiles}
 
-\title{Montgomery Arithmetic}
-\author{Eric Crockett}
-
 \begin{document}
 \ifcompileasbook
 \else
+\title{Montgomery Arithmetic}
+\hypersetup{pageanchor=false}
 \maketitle
 \listoffixmes
+\tableofcontents
+\compileasbooktrue
+\hypersetup{pageanchor=true}
 \fi
 
 \section{Montgomery Arithmetic}
@@ -132,6 +134,11 @@ The primary constraint is that the input to Montgomery reduction should be bound
 
 Next we consider constraints on $R$ itself. Assume the native word size has $k$ bits. Since Montgomery reduction outputs values in $[-N, 2N)$, we need $R\le2^{k-1}$ to account for the sign bit. When using native-word multiplication, we further require $R\le 2^{k-2}$. To see why, consider $k=64$, and $R=2^{63}$. In \textsf{PartitionInt}, one output will necessarily be 31 bits, and one will be 32 bits; without loss of generality, assume the high word is 32 bits. Then in the computation of $\alpha$ in~\cref{alg:mont_redc}, we are multiplying two 32-bit integers, which may require up to 64 bits to represent. However, we are using signed 64-bit numbers, so we only have 63 bits available. As a result, $R=2^{63}$ does not work for this case.
 Another way to see this limit is that (under the setting above), both terms of $\beta$ are up to 63 bits, but their sum may require 64 bits to represent. Again, this means that $R<2^{63}$, or in general, $R\le 2^{k-2}$.
+
+\subsection{Stricter Constraints}
+First, let's throw out negative numbers so that we can us unsigned numbers. Then we can set $R=2^{64}$, and the Montgomery reduction becomes even more efficient, as we don't need any masking. Each term in the line 3 of algorithm 1 are in $[0,N\cdot R]$, so we need $N\cdot R \le 2^{127}$ so that when we add the terms, we don't overflow. This implies that $N\le 2^{63}$. Another way to see this requirement is that Montgomery reduction outputs in the range $[0,2N)$, which is $[0, 2^{64})$.
+
+However, this extra space comes at a cost: we cannot represent negative numbers, and have to take special care to avoid them. Specifically, we have to reduce the first argument to $[0,q)$, add $q$ to it, reduce the second argument to $[0,q)$, and subtract it from the first. The output is now in $[0,2q)$. Addition is similarly convoluted: we have to reduce both arguments to $[0,q)$ before adding. We also have to take care that we don't ever multiply two values in $[0, 2q)$ together; these could overflow. Instead, we need to reduce at least one of the inputs to $[0,q)$ first.
 
 % This means we could maintain a centered representation (with double range) with one conditional subtraction. Note this is slightly \emph{worse} than the standard $[0, 2N)$ range, since we can maintain that expanded range with \emph{no} conditional subtractions.
 

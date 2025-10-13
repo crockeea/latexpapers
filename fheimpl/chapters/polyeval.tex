@@ -1,13 +1,15 @@
 \documentclass[../fheimpl.tex]{subfiles}
 
-\title{Polynomial Evaluation}
-\author{Eric Crockett}
-
 \begin{document}
 	\ifcompileasbook
 	\else
+	\title{Polynomial Evaluation}
+	\hypersetup{pageanchor=false}
 	\maketitle
 	\listoffixmes
+	\tableofcontents
+	\compileasbooktrue
+	\hypersetup{pageanchor=true}
 	\fi
 	
 	This chapter discusses strategies for evaluating a (uni-variate) polynomial, which may occur organically in an application, or may be the result of a polynomial approximation to a non-polynomial function (see~\cref{ch:polyapprox}). In general, we assume that the polynomial is the result of an approximation. Examples of polynomial evaluation strategies include Horner's method and Paterson-Stockmeyer (PS). 

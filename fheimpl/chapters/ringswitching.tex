@@ -1,0 +1,128 @@
+\documentclass[../fheimpl.tex]{subfiles}
+
+\begin{document}
+	\ifcompileasbook
+	\else
+	\title{Ring Switching}
+	\hypersetup{pageanchor=false}
+	\maketitle
+	\listoffixmes
+	\tableofcontents
+	\compileasbooktrue
+	\hypersetup{pageanchor=true}
+	\fi
+	
+	\section{Ring Switching}
+	Ring-switching is a general technique for moving a ciphertext from one cyclotomic ring to another. For now, we are concerned with switching from a large cyclotomic ring to some subring. Since the subring has fewer plaintext slots than the large ring, we will encode the slots of the large-ring ciphertext into the slots of several subring ciphertexts. In general, we can't just move to a smaller ring due to security: if the large-ring ciphertext has a large modulus, it might not be secure in the subring. However, if a large-ring ciphertext has a small modulus, it may if we use the same modulus on a smaller ring. In order to move to a smaller ring, the secret must also be in the subring. We can generate a subring secret, embed it to the larger ring, and apply key-switching. In the rest of this section, we assume this step has already been done.
+	
+	Note: in this section, we are primarily concerned with encoded plaintexts, so when we say that a ciphertext encrypts a plaintext, we mean an \emph{encoded} plaintext [polynomial]. We have been using the notation $\hat{m}$ for this object, but we drop the hat here for simplicity.
+	
+	We now describe the high-level structure of ring-switching. Let $m(X)$ be an encoded plaintext polynomial in a ring of dimension $N=2^\ell$, and let $n=2^k$ such that $k<\ell$. Define the \emph{index} as $r:=[\mathcal{R}_N : \mathcal{R}_n]=N/n$. Define an operation $\mathsf{Break}_n(\cdot)$ that, on input a polynomial $d(X)=\sum_{j=0}^{N-1}c_j\cdot X^j$, outputs a set of polynomials $d_i(X)=\sum_{j=0}^{n-1} c_{j\cdot r+i}\cdot X^j$ for $r=N/n$ and $i\in[0, r)$. We can write $d(X)=\sum_{i=0}^{r-1} d_i(X^r)\cdot X^i$.
+	
+	Given a polynomial $p(X)\in \mathcal{R}_n$, we can embed it into $\mathcal{R}_N$ by evaluating it at $X^r$, i.e., if $p(X)=\sum_{i=0}^{n-1} c_i\cdot X^i \in \mathcal{R}_n$, then $\tilde{p}(X)=p(X^r) = \sum_{i=0}^{n-1}c_i\cdot X^{r\cdot i}\in \mathcal{R}_N$.
+	
+	\begin{lemma}
+		\label{lem:ctbreak}
+		Let $(a(X), b(X))\in R_N^2$ be the encryption of $m(X)\in R_N$ under a secret $s(X)\in R_n$ embedded into $\tilde{s}(X)=s(X^r)\in R_N$. Let $a_i(X)$, $b_i(X)$, and $m_i(X)$ be corresponding pieces from $\mathsf{Break}_n(a(X))$, $\mathsf{Break}_n(b(X))$, and $\mathsf{Break}_n(m(X))$. Then $(a_i(X), b_i(X))\in R_n^2$ is an encryption of $m_i(X)\in R_n$ under $s(X)\in R_n$.
+	\end{lemma}
+	\begin{proof}
+		 Consider the degree of the coefficients of $a_i(X^r)\cdot X^i\cdot \tilde{s}(X)+b_i(X^r)\cdot X^i$. The embedded secret $\tilde{s}(X)$ only has non-zero coefficients on powers of $X$ that are $0\bmod r$. Similarly, $a_i(X^r)\cdot X^i$ and $b_i(X^r)\cdot X^i$ only have non-zero coefficients on powers of $X$ that are $i\bmod r$. Thus $a_i(X^r)\cdot X^i \cdot \tilde{s}(X) + b_i(X^r)\cdot X^i$ has terms whose degree is $i\bmod r$ before modular reduction. For terms whose degree is larger than $N$, we subtract $N$, but as $r\mid N$, this preserves the congruence mod $r$. By a similar argument, $a_j(X^r)\cdot X^j$ for $j\ne i$ \emph{cannot} have any terms with degree congruent to $i\bmod r$, hence $a_i(X^r)\cdot X^i \cdot \tilde{s}(X) + b_i(X^r)\cdot X^i = m_i(X)\cdot X^i$, and dividing by $X^i$ gives the result.
+	\end{proof}
+	
+	Note that the $m_i(X)$ do not correspond to encryptions of (some subset of) the original plaintext message. Instead, we seek linear combinations of the $m_i(X)$ to obtain $r$ polynomials $p_i(X)$ where $p_i(X)$ encodes slots $i\cdot n/2$ through $(i+1)\cdot n/2-1$ of $m(X)$. We explore two different ways of obtaining these $p_i$ below.	
+	
+	\subsection{Recursive Ring-Switching}
+	In this section, we show how to ring-switch when $n=N/2$. Once we have this, we can ring-switch to a subring of any dimension by recursing on the output ciphertexts.
+	
+	Let $\zeta$ be a $2N\th$ root of unity, and $\xi=\zeta^2$ be an $N\th$ root of unity. For a degree-$N$ (encoded) plaintext polynomial $m(X)$, we can write $m(X)=m_0(X^2) + X\cdot m_1(X^2)$, where $m_0$ is composed of the even-index coefficients of $m(X)$ and $m_1(X)$ is composed of the odd-index coefficients. 
+	
+	Let $z(X)$ be such that $z(\xi^{5^k}) = \zeta^{5^k}$ for $k\in\Z_{N/2}^*$. Note that CKKS decoding evaluates polynomials (of degree $N/2$) at $N\th$ roots of unity (i.e., $\xi$) raised to the $5^k \bmod N$ power for $k\in[0, N/4)$, so this amounts to encoding a plaintext whose $k\th$ component is $\zeta^{5^k}$.
+	
+	Let $p_0(X) = m_0(X) + z(X)\cdot m_1(X)$ and $p_1(X) = m_0(X) - z(X)\cdot m_1(X)$.
+	We claim that $p_0(X)$ encodes the first half of the slots of $m(X)$, and $p_1(X)$ encodes the second half of the slots of $m(X)$.
+	
+	Since $p_0(X)$ is in a subring, it gets evaluated at $\xi^{5^k}$ for $k\in\Z_{N/2}^*$ in decoding. 
+	\begin{align}
+		p_0(\xi^{5^k}) &= m_0(\xi^{5^k}) + z(\xi^{5^k})\cdot m_1(\xi^{5^k}) \\
+		             &= m_0(\zeta^{2\cdot 5^k}) + \zeta^{5^k}\cdot m_1(\zeta^{2\cdot 5^k}) \\
+		             &= m(\zeta^{5^k})
+	\end{align}
+	This yields the first $N/4$ slots of $m(X)$, as desired.
+	
+	For $p_1(x)$, we need the following facts:
+	\begin{itemize}
+		\item $5^k\bmod 2^k$ is odd for any $k\ge1$. This is true because 5 always generates the multiplicative group mod $2^k$.
+		\item $5^{N/4}\equiv N+1\bmod 2N$.
+		\item The previous fact implies that $5^{N/4}\equiv N+1\bmod N$, so $\xi^{5^{N/4}}=\xi$. 
+		\item $\zeta^N = -1$, because $\zeta$ is a $2N\th$ root of unity.
+		\item By the previous facts, $\zeta^{5^{k+N/4}} = \zeta^{5^k\cdot 5^{N/4}} \zeta^{5^k\cdot (N+1)} = \zeta^{5^k + N\cdot 5^k} = \zeta^{5^k}\cdot \zeta^{N\cdot 5^k} = (-1)^{5^k}\cdot \zeta^{5^k} = -\zeta^{5^k}$.
+	\end{itemize}
+	
+	\begin{align}
+		p_1(\xi^{5^k}) &= m_0\parens*{\xi^{5^k}} - z(\xi^{5^k})\cdot m_1\parens*{\xi^{5^k}} \\
+		             &= m_0\parens*{\xi^{5^k}} - \zeta^{5^k}\cdot m_1\parens* {\xi^{5^k}} \\
+		             &= m_0\parens*{\parens*{\xi^{5^{N/4}}}^{5^k}} + \zeta^{5^{k+N/4}}\cdot m_1\parens*{\parens*{\xi^{5^{N/4}}}^{5^k}} \\
+		             &= m_0\parens*{\xi^{5^{k+N/4}}} + \zeta^{5^{k+N/4}}\cdot m_1\parens*{\xi^{5^{k+N/4}}} \label{eqn:3.7}\\
+		             &= m_0\parens*{\zeta^{2\cdot 5^{k+N/4}}} + \zeta^{5^{k+N/4}}\cdot m_1\parens*{\zeta^{2\cdot 5^{k+N/4}}} \\
+		             &= m(\zeta^{5^{k+N/4}})
+	\end{align}
+	This yields the second $N/4$ slots of $m(X)$, as desired.
+	
+	When computing this on ciphertexts, we break both ciphertext components into two pieces $c_0=(a_0, b_0)$ and $c_1=(a_1, b_1)$. We compute $c_0\pm z(X)\cdot c_1$. The scale of the second term is $\Delta^2$, which means we need to adjust the scale of $c_0$ before adding. Finally, we need to rescale the result, meaning this approach consumes one level per halving.
+	
+	\subsection{GHPS Ring Switching}
+	We can take a more direct approach by using GHPS ring switching~\cite{cryptoeprint:2012/240}\footnote{Though GPT claims this is roughly the GHPS approach, I have not verified that myself; this is essentially an independent formulation of that approach. For example, there is no formal trace.}
+	In this approach, we can compute the $p_i$ ``directly'' in depth-1, at the cost of additional multiplications and automorphisms (c.f.~\cref{sec:automorphisms}).
+
+	\begin{lemma}
+		$5^{2^{k-2}}\equiv 1\bmod 2^{k}$.
+	\end{lemma}
+	\begin{proof}
+		True for $k=2$: $5\equiv 1\bmod 4$. Assume true for $k$, so $5^{2^{k-2}} = c\cdot 2^k+1$ for some $c$. Then $5^{2^{k-1}} = \parens*{5^{2^{k-2}}}^2 = \parens*{c\cdot 2^k+1}^2 = c^2\cdot 2^{2k} + c\cdot 2^{k+1} + 1 = c'\cdot 2^{k+1} + 1$ for some $c'$, and hence $5^{2^{k-1}}\equiv 1\bmod 2^{k+1}$.
+	\end{proof}
+	
+	\begin{corollary}
+		\label{cor:omegaident}
+		Let $\omega$ be a $(2^k)\th$ root of unity. Then $\omega^{5^{\ell\cdot 2^{k-2}}} = \omega$ for all $\ell$.
+	\end{corollary}
+	\begin{proof}
+		$\omega$ has order $2^k$. Then $\omega^{5^{\ell\cdot 2^{k-2}}} = \omega^{\parens*{\parens*{5^{2^{k-2}}}^\ell \bmod 2^k}} = \omega^{1^\ell} = \omega$.
+	\end{proof}
+	
+	Suppose we want to ring switch from $\mathcal{R}_N$ to $\mathcal{R}_n$. Let $r=N/n$ be the index. Furthermore, let $\zeta$ be a $2N\th$ root of unity, and let $\omega=\zeta^r$ be an $2n\th$ root of unity.
+	As before, let $z\parens*{\omega^{5^k}} = \zeta^{5^k}$, and define $z_i(X) = z(X)^{5^{i\cdot n/2}}$ so that $z_i\parens*{\omega^{5^k}} = \zeta^{5^{k+i\cdot n/2}}$.
+	
+	\begin{theorem}
+		Let $m(X) = \sum_{j=0}^{r-1} m_j(X^r)\cdot X^j$ and $p_i(X) = \sum_{j=0}^{N/n-1} z_i(X)^j\cdot m_j(X)$. Then $p_i\parens*{\omega^{5^k}} = m\parens*{\zeta^{5^{k+i\cdot n/2}}}$.
+	\end{theorem}
+	\begin{proof}
+		\begin{align}
+			p_i\parens*{\omega^{5^k}} &= \sum_{j=0}^{N/n-1} z_i\parens*{\omega^{5^k}}^j\cdot m_j\parens*{\omega^{5^k}} \\
+			&= \sum_{j=0}^{N/n-1} \parens*{\zeta^{5^{k+i\cdot n/2}}}^j\cdot m_j\parens*{\parens*{\omega^{5^{i\cdot n/2}}}^{5^k}} \label{eqn:coruse}\\
+			&= \sum_{j=0}^{N/n-1} \parens*{\zeta^{5^{k+i\cdot n/2}}}^j\cdot m_j\parens*{\omega^{5^{k+i\cdot n/2}}} \\
+			&= \sum_{j=0}^{N/n-1} \parens*{\zeta^{5^{k+i\cdot n/2}}}^j\cdot m_j\parens*{\parens*{\zeta^{5^{k+i\cdot n/2}}}^r} \\
+			&= m\parens*{\zeta^{5^{k+i\cdot n/2}}}
+		\end{align}
+		where~\cref{eqn:coruse} uses~\cref{cor:omegaident}: recall that $\omega$ is a $2^k=2n\th$ root of unity, so $n/2 = 2^{k-2}$.
+	\end{proof}
+	
+	\subsection{Switching from $m=2^{17}$ to $2^{10}\cdot 17$}
+	This section discusses a specific instance of a more general form of ring-switching, where one of the rings does not have a power-of-two cyclotomic index.
+	
+	Concretely, we will switch from $R=\Z[Z]/(Z^{2^{16}}-1)$ to $S=\Z[i][X,Y,W]/(X^{2^8}-i, Y^{2^8}-i, \Phi_{17}(W))$. Note that we will primarily use $i$ as an index and not as $\sqrt{-1}$; uses should be clear from context. The former ring has $2^{15}$ slots while the latter ring has $2^{20}$ slots, thus each element $m(X,Y,W)$ will be composed of 32 elements $u_i(Z)$. Let $p=17$, $n=256$, $\zeta_i = \zeta^{5^i}$ where $\zeta$ is a $4n\th$ root of unity, $\eta_\ell=\eta^{5^\ell}$ where $\eta$ is a $17\th$ root of unity, and $\xi_i=\xi^{5^i}$ where $\xi$ is a ${2^{17}}\th$ root of unity.
+	
+	
+	Though there are many ways we could encode $m(X,Y,W)$ into the $u_i(Z)$, we will target the following encoding:
+	\[u_i\parens*{\xi_j} = m\parens*{\zeta_{(i\bmod 2)\cdot n/2+\floor{j/n}}, \zeta_{j\bmod n}, \eta_{\floor{i/2}}}\]
+	
+	If we think of $S$ as holding $p-1$ $n\times n$ matrices, then $u_i$ holds 128 rows of one such matrix (in row-major order). For example, $u_0$ holds the first 128 rows of the first matrix, and $u_1$ holds the second 128 rows of the first matrix, and so on.
+	
+	
+	
+	
+	\ifcompileasbook
+	\else
+	\printbibliography
+	\fi
+	
+\end{document}

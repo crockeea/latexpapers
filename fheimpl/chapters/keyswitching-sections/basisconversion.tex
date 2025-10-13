@@ -1,13 +1,16 @@
-\documentclass[../keyswitching.tex]{subfiles}
-
-\title{Basis Conversion}
-\author{Eric Crockett}
+% !TeX root = ../../fheimpl.tex
+\documentclass[../../fheimpl.tex]{subfiles}
 
 \begin{document}
 	\ifcompileasbook
 	\else
+	\title{Basis Conversion}
+	\hypersetup{pageanchor=false}
 	\maketitle
 	\listoffixmes
+	\tableofcontents
+	\compileasbooktrue
+	\hypersetup{pageanchor=true}
 	\fi
 
 \section{Basis Conversion}
@@ -15,18 +18,82 @@
 One of the fundamental operations required for key-switching is basis conversion. Let $\mathcal{B}=\set{q_i}_{0\le i< k}$ be a basis, and $x\in \Z_Q$ be represented in basis $\mathcal{B}$. By ``basis conversion'', we mean that we wish to find $\bracks{x}_Q$ in basis $\mathcal{C}$ (which we can assume is disjoint from $\mathcal{B}$). We denote this as $\mathrm{Conv}_{\mathcal{B}\rightarrow\mathcal{C}}(\cdot)$. One simple way to do this is to use CRT reconstruction to compute $\bracks{x}_Q$ over the integers, and then reduce it mod $p_i$ for each $p_i\in\mathcal{C}$. However computing the CRT reconstruction over the integers may require BigInteger arithmetic, so we seek to convert $x$ in basis $\mathcal{B}$ to $\bracks{x}_Q$ in basis $\mathcal{C}$ \emph{directly}, without doing a full CRT reconstruction of $x$. Note that we can obtain basis \emph{extension} by concatenating the CRT components of disjoint bases $\mathcal{B}$ (i.e., the input) and $\mathcal{C}$ (i.e., the output); we generally use these terms interchangeably.
 
 \subsection{Garner's Algorithm}
-Liberate-FHE uses a tweak of Garner's algorithm~\cite[Section 5.6]{geddes1992algorithms} for basis conversion, which is based on the mixed-radix CRT reconstruction algorithm:
+Basis extension inherently requires CRT reconstruction, but Garner's algorithm~\cite[Section 5.6]{10.1145/1457838.1457864, geddes1992algorithms} allows us to avoid expensive BigInteger arithmetic. Briefly, Garner's Algorithm~\cref{alg:garnersalg} is based on the mixed-radix CRT reconstruction algorithm:
 \[\bracks*{x}_Q = \sum_{i=0}^{k-1} \bracks*{c_i}_{q_i}\cdot Q_{i-1}\in\Z.\]
 where 
 \[c_i = \parens*{x_i - \sum_{j=0}^{i-1} \bracks*{c_j}_{q_j}\cdot Q_{j-1}}\cdot Q_{i-1}^{-1} \in\Z_{q_i}.\]
 
+\begin{lemma}
+	When $c_i$ are lifted to their standard representatives, 
+	$0\le \sum_{i=0}^{k-1} \abs*{c_i}_{q_i}\cdot Q_{i-1} < Q$.
+\end{lemma}
+\begin{proof}
+	Proof by induction on $k$. When $k=1$, $\sum_{i=0}^{k-1} \abs*{c_i}_{q_i}\cdot Q_{i-1} = \abs*{c_i}_{q_0}\cdot Q_{-1} = \abs*{c_i}_{q_0}$, which is by definition in $[0, q_0) = [0, Q_0)]$. 
+	
+	Now assume the claim is true for some $k \ge 1$, and suppose $Q$ is the product of $k+1$ primes. Then $\sum_{i=0}^{k} \abs*{c_i}_{q_i}\cdot Q_{i-1} = \parens*{\sum_{i=0}^{k-1} \abs*{c_i}_{q_i}\cdot Q_{i-1}} + \abs*{c_k}_{q_k}\cdot Q_{k-1}$, where the sum is in the range $[0, Q_{k-1})$ by the induction assumption. Since all terms are non-negative, the first term is $\le Q_{k-1}-1$, and the second term is $\le (q_k-1)\cdot Q_{k-1}$. $Q_{k-1}-1 + (q_k-1)\cdot Q_{k-1} = Q_{k-1} + Q_{k} - Q_{k-1} - 1 = Q_k-1$, as desired.
+\end{proof}
+
+\begin{lemma}
+	When $c_i$ are lifted to their canonical representatives \emph{and $Q$ is odd}, 
+	$-\frac{Q-1}{2}\le \sum_{i=0}^{k-1} \bracks*{c_i}_{q_i}\cdot Q_{i-1} \le \frac{Q-1}{2}$.
+\end{lemma}
+\begin{proof}
+	Proof by induction on $k$. When $k=1$, $\sum_{i=0}^{k-1} \bracks*{c_i}_{q_i}\cdot Q_{i-1} = \bracks*{c_i}_{q_0}\cdot Q_{-1} = \bracks*{c_i}_{q_0}$, which is by definition in $[-\frac{q_0-1}{2}, \frac{q_0-1}{2}] = [-\frac{Q_0-1}{2}, \frac{Q_0-1}{2}]$. 
+	
+	Now assume the claim is true for some $k \ge 1$, and suppose $Q$ is the product of $k+1$ odd primes. Then $\sum_{i=0}^{k} \bracks*{c_i}_{q_i}\cdot Q_{i-1} = \parens*{\sum_{i=0}^{k-1} \bracks*{c_i}_{q_i}\cdot Q_{i-1}} + \bracks*{c_k}_{q_k}\cdot Q_{k-1}$, where the sum is in the range $[0, Q_{k-1})$ by the induction assumption. Since all terms are non-negative and all primes are odd, the first term is $\in [-\frac{Q_{k-1}-1}{2}, \frac{Q_{k-1}-1}{2}]$, and the second term is $\in [-\frac{(q_k-1)\cdot Q_{k-1}}{2}, \frac{(q_k-1)\cdot Q_{k-1}}{2}]$.
+	
+	On the low end, $-\frac{Q_{k-1}-1}{2}-\frac{q_k-1}{2} = -\frac{Q_{k-1}}{2}+\frac{1}{2}-\frac{Q_k}{2} + \frac{Q_{k-1}}{2} = -\frac{Q_k-1}{2}$.
+	A similar argument on the opposite end shows that the sum is in the range $[-\frac{Q_k-1}{2}, \frac{Q_k-1}{2}]$, as desired.
+	
+	Furthermore, note that if some modulus $q_i$ is even, then $\bracks*{c_i}\in[-\frac{q_i}{2}, \frac{q_i}{2}-1]$, and $-\frac{q_i}{2} < -\frac{q_i-1}{2}$, so the argument above does not hold.
+\end{proof}
+
+\begin{algorithm}
+	\caption{Garner's Algorithm}\label{alg:garnersalg}
+	\begin{algorithmic}[1]
+		\Procedure{GarnerReconstruction}{$(x_0\in \Z_{q_0}, x_1\in\Z_{q_1}, \ldots, x_n\in\Z_{q_n})$, $\mathcal{B}=(q_0, q_1, \ldots, q_n)$}
+		\State \Comment $\phi_{q_i}(\cdot)$ means ``evaluate $\cdot$ in $\Z_{q_i}$''
+		\For{$i$ in range$(1, n)$}
+		\Comment{Compute constants}
+			\State $\textrm{prod} \gets \phi_{q_i}(q_0)$
+			\For{$j$ in range$(1, i-1)$}
+				\State $\textrm{prod} \gets \phi_{q_i}(\textrm{prod}\cdot q_j)$
+			\EndFor
+			\State $\gamma_i\gets \phi_{q_i}(\textrm{prod}^{-1})$
+		\EndFor
+		\State \Comment Compute mixed radix coeffs ${v_k}$
+		\State $c_0\gets \bracks*{x_0}_{q_0}$
+		\For{$i$ in range$(1, n)$}
+			\State $t \gets \phi_{q_i}(c_{i-1})$
+			\For{$j$ in range$(i-2, -1, -1)$}
+				\State $t\gets t\cdot q_j+\phi_{q_i}(c_j)$
+				\Comment{Use Horner's method}
+			\EndFor
+			\State $v_i\gets\bracks*{(x_i-t)\cdot \gamma_i}_{q_i}$
+		\EndFor
+		\State \Comment Convert from mixed-radix repr to standard repr
+		\State $x\gets c_n$
+		\For{$i$ in range$(n-1, -1, -1)$}
+			\State $x\gets x\cdot q_i + c_i$
+			\Comment{Use Horner's method}
+		\EndFor
+		\Return $x$
+		\EndProcedure
+	\end{algorithmic}
+\end{algorithm}
+
 Note that the $c_i$ can be computed without the use of BigInteger arithmetic since all individual terms are reduced mod $q_i$, and all of the arithmetic is in $\Z_{q_i}$.
+
+The algorithm is described for scalars, but it trivially extends component-wise to ring elements. Also note that this algorithm is described using the canonical representative and outputs $\bracks*{x}_Q\bmod p$, but it works equally well with standard representatives to obtain $\abs*{x}_Q\bmod p$ by replacing all canonical representatives with standard representatives.
+
+\subsection{Fast Basis Conversion via Garner's Algorithm}
+\label{sec:fastextension}
 
 For the purposes of basis extension, we are interested in computing $\bracks{x}_p$ for some $p\in\mathcal{C}$. Since the sum for $x$ is over the integers, 
 \begin{align*}
-	\bracks*{x}_Q &\equiv \sum_{i=0}^{k-1} \bracks*{c_i}_{q_i}\cdot \bracks*{Q_{i-1}}_p \bmod p,
+	\bracks*{x}_p &\equiv \sum_{i=0}^{k-1} \bracks*{c_i}_{q_i}\cdot Q_{i-1} \bmod p.
 \end{align*}
-where $\bracks*{Q_{i-1}}_p$ can be pre-computed. This gives us a way to compute $\bracks*{x}_Q\bmod p$ without using BigInteger arithmetic since each term is mod a small prime, the product is mod $p$, and the sum is mod $p$.
+This gives us a way to compute $\bracks*{x}_Q\bmod p$ without using BigInteger arithmetic since each term is mod a small prime, the product is mod $p$, and the sum is mod $p$. See~\cref{alg:basisextgarner}.
 
 This algorithm has two steps:
 \begin{enumerate}
@@ -35,11 +102,52 @@ This algorithm has two steps:
 \end{enumerate}
 The first step is inherently quadratic in $\abs{\mathcal{B}}$. The second step is linear for each $p\in\mathcal{C}$, giving an overall cost of $\mathcal{O}(\abs{\mathcal{B}}^2+\abs{\mathcal{B}}\cdot \abs{\mathcal{C}})$.
 
-The algorithm is described over the integers, but it trivially extends component-wise to ring elements. Also note that this algorithm is described using the canonical representative and outputs $\bracks*{x}_Q\bmod p$, but it works equally well with standard representatives to obtain $\abs*{x}_Q\bmod p$ by replacing all canonical representatives with standard representatives.
+\begin{algorithm}
+	\caption{Basis Extension with Garner's Algorithm}\label{alg:basisextgarner}
+	\begin{algorithmic}[1]
+		\Procedure{BasisExtGarner}{$(x_0\in \Z_{q_0}, x_1\in\Z_{q_1}, \ldots, x_n\in\Z_{q_n})$, $\mathcal{B}=(q_0, q_1, \ldots, q_n)$, $\mathcal{C}=(p_0, p_1, \ldots, p_k)$}
+			\State \Comment $\phi_{q_i}(\cdot)$ means ``evaluate $\cdot$ in $\Z_{q_i}$''
+			\For{$i$ in range$(1, n)$}
+				\Comment{Compute constants}
+				\State $\textrm{prod} \gets \phi_{q_i}(q_0)$
+				\For{$j$ in range$(1, i-1)$}
+					\State $\textrm{prod} \gets \phi_{q_i}(\textrm{prod}\cdot q_j)$
+				\EndFor
+				\State $\gamma_i\gets \phi_{q_i}(\textrm{prod}^{-1})$
+			\EndFor
+			\State \Comment Compute mixed radix coeffs ${v_k}$
+			\State $c_0\gets \bracks*{x_0}_{q_0}$
+			\For{$i$ in range$(1, n)$}
+				\State $t \gets \phi_{q_i}(c_{i-1})$
+				\For{$j$ in range$(i-2, -1, -1)$}
+					\State $t\gets t\cdot q_j+\phi_{q_i}(c_j)$
+					\Comment{Use Horner's method}
+				\EndFor
+				\State $v_i\gets\bracks*{(x_i-t)\cdot \gamma_i}_{q_i}$
+			\EndFor
+			\State \Comment Convert from mixed-radix repr to standard repr for each $p_j$
+			\State $xs\gets []$
+			\For{$j$ in range$(k+1)$}
+				\If{$\exists \ell$ s.t. $p_j == q_\ell$}
+					\State $xs$.append($x_\ell$)
+					\Comment {A convenient short-circuit}
+				\Else
+					\State $x\gets \phi_{p_j}(c_n)$
+					\For{$i$ in range$(n-1, -1, -1)$}
+						\State $x\gets x\cdot q_i + \phi_{p_j}(c_i)$
+						\Comment{Use Horner's method}
+					\EndFor
+					\State $xs$.append($x$)
+				\EndIf
+			\EndFor
+			\Return $xs$
+		\EndProcedure
+	\end{algorithmic}
+\end{algorithm}
 
-\subsubsection{Implementation}
-The following refers to the DeSilo C++ code provided to Cornami.
-Liberate builds the $c_i$ one term of the sum at a time. Specifically, $\texttt{pre\_extend}$ maintains the following invariants at the start of iteration $i$ (named \texttt{index} in the code):
+\subsubsection{Implementation in DESILO-FHE}
+The following refers to the DESILO C++ code provided to Cornami.
+DESILO-FHE builds the $c_i$ one term of the sum at a time. Specifically, $\texttt{pre\_extend}$ maintains the following invariants at the start of iteration $i$ (named \texttt{index} in the code):
 \begin{itemize}
 	\item $\mathrm{pre\_extended}_j$ holds $\bracks*{c_j}_{q_j}$ for $j \le i$
 	\item $\mathrm{pre\_extended}_j$ holds $\sum_{k=0}^i \bracks{c_k}_{q_j}\cdot\bracks{Q_{k-1}}_{q_j}$ for $j > i$
@@ -51,14 +159,12 @@ Then in iteration $i$, $\texttt{pre\_extend}$ computes
 	&= \bracks*{(\mathrm{partition}_{i+1} - \sum_{k=0}^i \bracks{c_k}_{q_{i+1}}\cdot\bracks{Q_{k-1}}_{q_{i+1}})\cdot Q_{i}^{-1}}_{q_i} \\
 	&= \bracks*{c_i}_{q_i}
 \end{align*}
-This maintains the invariant that $\mathrm{state}_{i+1}$ holds $c_{i+1}$. The inner \texttt{for} loop maintains the second invariant. 
-%However, there is a problem: \texttt{pre\_extend} sets $\mathrm{pre\_extended}_i$ to the output of \texttt{mont\_enter}, which outputs a value in $[0, 2q_i)$. It should output a value in $[0, q_i]$, since that is the range of $\bracks*{c_i}_{q_i}$.
+This maintains the invariant that $\mathrm{state}_{i+1}$ holds $c_{i+1}$. The inner \texttt{for} loop maintains the second invariant.
 
-\texttt{extend} uses the $\bracks{c_i}_{q_i}$ to compute $x \bmod p_j$ for each $p_j\in \mathcal{C}$. We note that if $p_j\in\mathcal{B}$ is also in $\mathcal{C}$ (as it is in key-switching), we do \emph{not} need to run \texttt{extend} for $p_j$, since $y_j=x_j$.\footnote{However, an implementation \emph{may} choose to do so, as it is mathematically correct. Liberate-FHE takes this approach.} 
+\texttt{extend} uses the $\bracks{c_i}_{q_i}$ to compute $x \bmod p_j$ for each $p_j\in \mathcal{C}$. We note that if $p_j\in\mathcal{B}$ is also in $\mathcal{C}$ (as it is in key-switching), we do \emph{not} need to run \texttt{extend} for $p_j$, since $y_j=x_j$.\footnote{However, an implementation \emph{may} choose to do so, as it is mathematically correct. DESILO-FHE takes this approach.} 
 
-\subsection{Fast Basis Conversion}
-\label{sec:fastextension}
-\cite{cryptoeprint:2018/117} introduced an alternative to Garner's algorithm which they call ``fast basis conversion'' (FBC). Like Garner's algorithm, FBC enables CRT basis conversion/extension without doing a CRT reconstruction. FBC utilizes floating-point arithmetic. Due to the finite precision inherent in the use of floating-point arithmetic, FBC has a low probability of introducing small approximation errors, which ``in the context of homomorphic operations are inconsequential''.
+\subsection{Fast Basis Conversion: HPS18}
+\cite{cryptoeprint:2018/117} introduced an alternative to the basis extension algorithm based on Garner's algorithm which they call ``fast basis conversion'' (FBC). Like Garner's algorithm, FBC enables CRT basis conversion/extension without doing a CRT reconstruction. FBC utilizes floating-point arithmetic. Due to the finite precision inherent in the use of floating-point arithmetic, FBC has a low probability of introducing small approximation errors, which ``in the context of homomorphic operations are inconsequential''.
 
 Garner's algorithm is based on the mixed-radix CRT reconstruction formula. By comparison, FBC uses the following reconstruction formula:
 \[\bracks*{x}_Q = \parens*{\sum_{i=1}^k[x_i\cdot\tilde{Q}_i]_{q_i}\cdot Q_i^*}-\round*{\sum_{i=i}^k\frac{[x_i\cdot\tilde{Q}_i]_{q_i}}{q_i}}\cdot Q\in \Z,\]
@@ -80,7 +186,7 @@ FBC is a two-step process:
 \end{enumerate}
 The first step is $\mathcal{O}(\abs{\mathcal{B}})$. The second step is $\mathcal{O}(\abs{\mathcal{B}}\cdot \abs{\mathcal{C}})$. Thus this approach is better than Garner's algorithm, especially in cases where $\abs{\mathcal{B}}$ is large (which is true when $k$ is large), at the cost of the use of floating point arithmetic and a small amount of error.
 
-\subsection{Adding Error without Floating Point Arithmetic}
+\subsection{Fast (Approximate) Basis Conversion: BEH+16}
 \label{sec:basisExtErr}
 \cite{cryptoeprint:2016/510} proposed an alternate algorithm that is similar to \cref{sec:fastextension}, but it does not require floating-point arithmetic. Essentially, it skips the step in \cref{sec:fastextension} that subtracts off a multiple of $q$. As a result, the answer isn't quite correct, and correction is needed, which takes additional operations.
 
@@ -99,7 +205,7 @@ This is used in~\cite{cryptoeprint:2018/931}. It is also used in~\cite{cryptoepr
 
 \blockquote{It includes the noise which can be ignored in the case of the \textrm{HEAAN-RNS} scheme. Even though the effect of this noise is negligible, we can reduce its size further by adapting the algorithms introduced in~\cite{cryptoeprint:2018/117}.}
 
-\subsection{Reduce Error without Floating Point Arithmetic}
+\subsection{Reduced Error without Floating Point Arithmetic}
 Recently,~\cite{cryptoeprint:2024/417} gave an alternate to FBC that replaces the floating-point arithmetic in~\cite{cryptoeprint:2018/117} with integer operations. It requires some knowledge of how the RNS primes are selected (relative to $\Delta$), and is error-free with high probability. The complexity is $\mathcal{O}(\abs{\mathcal{B}}\cdot\abs{\mathcal{C}})$, the same as FBC, but no floating point operations are required.
 
 \subsection{Comparison}

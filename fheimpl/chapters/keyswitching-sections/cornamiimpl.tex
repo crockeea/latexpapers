@@ -2,12 +2,14 @@
 \documentclass[../../fheimpl.tex]{subfiles}
 
 \begin{document}
-	\newif\ifimplismain
+	% Add Cornami Confidential headers
+	\pagestyle{fancy}
+	\fancyfoot[C]{Cornami Proprietary Information}
+	
 	\ifcompileasbook
 	\else
-	\hypersetup{pageanchor=false}
 	\title{Cornami Implementation}
-	\implismaintrue
+	\hypersetup{pageanchor=false}
 	\maketitle
 	\listoffixmes
 	\tableofcontents
@@ -18,6 +20,31 @@
 	\section{Cornami Implementation}
 	
 	\subsection{Composite Scaling}
+	In CKKS, the precision of a computation is determined by the \emph{scaling factor}. Typical applications require 40-54 bits of precision, hence the scaling factor is $\Delta\in[2^{40},2^{54}]$. In RNS implementations, the most straight-forward way to achieve this precision is to choose RNS moduli which are approximately $\Delta$. For 64-bit machines, we can conveniently hold each modulus in a 64-bit word. There are two conditions on the moduli:
+	\begin{itemize}
+		\item They must be pairwise coprime.
+		\item They must be congruent to 1 mod $2N$.
+	\end{itemize}
+	
+	Composite scaling is a technique for breaking each RNS component into two or more words that are smaller than $\Delta$. For example, if the application requires that $\Delta=2^40$ and we want to implement an FHE scheme using 32-bit words, we can replace each 40-bit modulus with two 20-bit moduli. The set of 20-bit moduli are subject to the same constraints as the 40-bit moduli: they must be pairwise coprime and congruent to 1 mod $2N$.
+	
+	We have done the analysis to determine that using 27-bit machine word arithmetic would be advantageous on our hardware compared to using 64-bit words. However, using 27-bit composite scaling requires FHE \emph{parameters}. For example, Desilo's Gold parameters currently use $N=2^{16}$ and 35 40-bit primes. 27-bit composite scaling parameters that achieve the same precision would therefore require 70 20-bit moduli, each of which is congruent to 1 mod $2^{17}$.
+	
+	Unfortunately, it's easy to see that this is impossible: we need all of the moduli to be close to 20 bits (say 19-21 bits), but there are only about 28 multiples of $2N$ in this range, and they certainly aren't pairwise coprime. Thus there simply aren't enough ``good'' moduli in the target range to choose composite-scaling parameters for Desilo Gold.
+	
+	Since we're targeting 27-bit composite scaling and we need to reserve four bits for arithmetic, even FHE parameters that use $\Delta=2^{46}$ would require many 23-bit moduli, and there aren't enough of them either (roughly 96, but we need a large subset of coprime values in this set, which may not exist).
+	
+	
+	
+	
+	
+	When picking FHE parameters, we take these application requirements in conjunction to security requirements. At a coarse level, the application determines the \emph{size} of the primes, security determines the \emph{number} of primes, which determines how many operations can be accomplished before bootstrapping.
+	
+	The size of primes for typical applications is convenient for 64-bit machines, 
+	
+	
+	
+	
 	Our implementation uses 64-bit words, but we describe the topologies generically so that we can evaluate their performance and cost when using smaller words (composite scaling).
 	
 	\begin{itemize}
@@ -153,11 +180,12 @@ void pre_extend(int64_t *c_2, int64_t *pre_extended, std::vector<int> partition,
 		\label{fig:moddowntopo}
 	\end{figure}
 	
-	
-	
-	\ifimplismain
+	\ifcompileasbook
 	\else
 	\printbibliography
 	\fi
+	
+	% reset page style
+	\pagestyle{plain}
 	
 \end{document}

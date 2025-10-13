@@ -1,33 +1,183 @@
 \documentclass[../fheimpl.tex]{subfiles}
 
-\title{CKKS Homomorphic Encryption}
-\author{Eric Crockett}
-
 \begin{document}
 \ifcompileasbook
 \else
-\maketitle
-\listoffixmes
+	\title{Matrix Multiplication}
+	\hypersetup{pageanchor=false}
+	\maketitle
+	\listoffixmes
+	\tableofcontents
+	\compileasbooktrue
+	\hypersetup{pageanchor=true}
 \fi
 
-\section{Native Operations}
-    \begin{itemize}
-        \item Slot-wise addition/subtraction
-        \item Slot-wise multiplication
-        \item Slot-wise conjugation
-        \item Slot-wise multiplication by $i$
-        \item Cyclic rotation of slots		
-    \end{itemize}
-
-
-\section{Matrix Multiplication}
-This section covers (application-layer) matrix multiplication.
-
+\section{Introduction}
+In general, we can consider several variations of simple linear algebra tasks:
 \begin{itemize}
-    \item Shai did some work on multiplication via diagonals.
-    \item \cite{cryptoeprint:2020/1483} My paper
-    \item HETAL \cite{10.5555/3618408.3619194} improves on my work and gets a factor of 2-3x improvement.
+	\item Plaintext matrix times encrypted vector
+	\item Encrypted matrix times plaintext vector
+	\item Plaintext matrix times encrypted matrix (PC-MM)
+	\item Encrypted matrix times encrypted matrix (CC-MM)
 \end{itemize}
+
+The first solutions to tackle these problems attempted to simulate the operations on plaintexts~\cite{cryptoeprint:2014/106, cryptoeprint:2018/1041, cryptoeprint:2020/1483, 10.5555/3618408.3619194, cryptoeprint:2025/1367}. More recent approaches involve operating on ciphertext coefficients directly~\cite{cryptoeprint:2024/1284, cryptoeprint:2025/448}.
+
+Note that when we discuss multiplying an $\ell\times k$ matrix times a $k\times m$ matrix, we refer to this using abbreviated notation as a ``$\ell\times k\times m$'' product.
+
+\section{Shared-$a$ Ciphertexts}
+\label{sec:format-switching}
+Typically, we encrypt multiple ciphertexts with the \emph{same} secret key $s$ into pairs $(a_i, b_i)$. As we will see below, it can sometimes be beneficial to instead encrypt multiple ciphertexts under \emph{different} secret keys $s_i$ into pairs $(a, b_i)$. Ciphertexts of this form are referred to as having ``shared-$a$''. \cite{cryptoeprint:2024/1284} shows how to convert between these representations. We describe this algorithm and some variants in the subsections below.
+
+\subsection{Converting between Shared-$a$ and Shared-$s$}
+Suppose we want to convert $n$ ciphertexts from shared-$s$ format to shared-$a$ format.
+We assume that we have a default encryption key $s$. During key generation, we additionally sample $s_0, \ldots, s_{n-1}$ and a ``format-switching key'' $(\tilde{a}, \tilde{B})\in R^n_{PQ}\times R^{n\times n}_{PQ}$ as follows. The $s_i$ and $\tilde{a}$ are generated uniformly, and we treat $\tilde{a}$ as a row vector. We use the notation $(x_0, x_1, \ldots, x_{n-1})$ to mean a row vector. Then 
+\[\tilde{B} = -\tilde{a}^\intercal\cdot	(s_0, s_1, \ldots,  s_{n-1})+E+P\cdot s\cdot I_n\bmod PQ,\]
+where the first product results in an $n\times n$ matrix and $E\in R^{n\times n}$ has coefficients sampled from the error distribution.
+
+For input ciphertexts $(a_i, b_i)$, the format-switch procedure first does basis extension from $Q$ to $P\cdot Q$ on each of the $a_i$:
+\[\overline{a}_i = \mathrm{Conv}_{\mathcal{Q}\rightarrow\mathcal{P\cdot Q}}(a_i).\]
+It outputs the shared $a$-value
+\[a' = \mathrm{RS}_{P\cdot Q\rightarrow Q}\parens*{\inner{\parens*{\overline{a}_0, \ldots \overline{a}_{n-1}},\tilde{a}}}.\]
+For the $b'_i$s, it outputs
+\[\parens*{b'_0, \ldots b'_{n-1}} = \parens*{b_0, \ldots b_{n-1}} + \mathrm{RS}_{P\cdot Q\rightarrow Q}\parens*{\parens*{\overline{a}_0, \ldots \overline{a}_{n-1}}\cdot \tilde{B}\bmod PQ}.\]
+
+We can verify correctness: the input pair $(a_i, b_i)$ satisfies $a_i\cdot s + b_i\approx m_i$. After conversion to shared-$a$, we can verify that
+\begin{align}
+	a'\cdot s_i + b'_i &= a'\cdot s_i + b_i + \mathrm{RS}_{P\cdot Q\rightarrow Q}\parens*{\parens{\overline{a}_0, \ldots \overline{a}_{n-1}}\cdot \tilde{B}_i\bmod PQ} \\
+	&= a'\cdot s_i + b_i + \mathrm{RS}_{P\cdot Q\rightarrow Q}\parens*{\parens*{\overline{a}_0, \ldots \overline{a}_{n-1}}\cdot (-\tilde{a}^\intercal\cdot	s_i+E_i+P\cdot s\cdot I_{n,i})\bmod PQ} \\
+	&\approx a'\cdot s_i + b_i + -a'\cdot s_i + \mathrm{RS}_{P\cdot Q\rightarrow Q}\parens*{\parens*{\overline{a}_0, \ldots \overline{a}_{n-1}}\cdot (E_i+P\cdot s\cdot I_{n,i})\bmod PQ} \\
+	&\approx a_i\cdot s + b_i + \mathrm{RS}_{P\cdot Q\rightarrow Q}\parens*{\parens*{\overline{a}_0, \ldots \overline{a}_{n-1}}\cdot E_i\bmod PQ} \\
+	&\approx m_i
+\end{align}
+Above, we use $\tilde{B}_i$ to mean the $i\th$ column of $\tilde{B}$, and similarly for $E_i$ and $I_{n,i}$.
+
+To convert back to shared-$s$, we simply key-switch ciphertext $i$ from $s_i$ to $s$. Note that in all cases, these key-switches can be \emph{hoisted} (c.f.~\cref{sec:hoisting}): we do basis extension and NTTs for the $a$ part \emph{once}, and the the dot products, iNTT, and ModDown for each key.
+
+Note that this simple version of format-switching requires $P > Q$ for correctness. The format-switching key contains $n + n^2$ ring elements mod $PQ$. The conversion process requires $n^2$ ring multiplications (mod $PQ$), plus $n$ basis extensions and $n+1$ rescales.
+
+\subsection{Hybrid Format-Switching}
+The requirement that $P>Q$ is restrictive given that we would like to use parameters that are compatible with hybrid key-switching. Fortunately, format-switching is closely related to key-switching, and we can create a ``hybrid'' version in a similar way. Assume that we decompose a polynomial into $\beta$ ciphertexts, in the same way as~\cref{sec:ks-crt-decomposition}. We now sample $\beta n$ elements for $\tilde{a}$, and $\tilde{B}$ and $E$ become $\beta n\times n$. Instead of adding $P\cdot s$ along the diagonal, we add blocks of the column vector $\mathsf{Power}(s)=\parens*{ \tilde{Q}_0\cdot Q_0^*\cdot P\cdot s, \tilde{Q}_1\cdot Q_1^*\cdot P\cdot s, \ldots, \tilde{Q}_{k-1}\cdot Q_{k-1}^*\cdot P\cdot s}^\intercal$. During conversion, we first decompose each input $a_i$ prior to basis extension. Nothing else changes.
+
+We have now removed the requirement that $P>Q$, and any parameters that work in a hybrid key-switch setting also work here. The format-switching key contains $\beta \cdot n + \beta \cdot n^2$ ring elements mod $PQ$. The conversion process requires $\beta n^2$ ring multiplications (mod $PQ$), plus $\beta n$ basis extensions and $n+1$ rescales.
+
+\subsection{Linear Format-Switching}
+\cite{cryptoeprint:2024/1284} gives an improved version of format-switching that greatly reduces the size of the key-switch key. The basic idea is to use $\log(n)$ steps to reduce the number of unique $a$-values by half at each step. For example, we start with $n$ $a$-values and one key. In the first step, we pair up neighboring ciphertexts and convert them to shared-$a$ format. Now there are $n/2$ shared-$a$ ciphertexts, each with a different $a$-value. Each shared-$a$ ciphertext uses the keys $s_0$ and $s_1$. We proceed in this way until all ciphertexts share an $a$-value and they all use different keys.
+
+The basic procedure is very similar. For simplicity, let $n=2^T$. First, we discuss key generation. 
+As before, sample $n$ fresh keys $s_0, \ldots, s_{n-1}$. Define $\mathbf{s}^{(0)}=s$, and $\mathbf{s}^{(t)}=\parens*{s_0, \ldots, s_{2^t-1}}$ for $t\in[1,T]$.
+Define $\mathbf{\tilde{a}}^{(t)}$ to be a uniformly column random vector (mod $P\cdot Q$), where $|\mathbf{\tilde{a}}^{(t)}| = 2\beta$, for $t\in[1,T]$.
+Define $\mathsf{Power}\parens*{\mathbf{s}^{(t)}}$ to be the $\beta\times 2^{t-1}$ matrix with the decomposition of $s_j$ going down column $j$, i.e., $\mathsf{Power}\parens*{\mathbf{s}^{(t)}}_{i,j} = \tilde{Q}_{i}\cdot Q_{i}^*\cdot P\cdot s_j$. Finally, for $t\in[1,T]$, define
+\[\mathbf{\tilde{B}}^{(t)} = -\mathbf{\tilde{a}}\cdot \mathbf{s}^{(t)} + \mathbf{E}^{(t)} + \parens*{I_2\otimes \mathsf{Power}\parens*{\mathbf{s}^{(t-1)}}},\]
+where $\mathbf{E}^{(t)}$ is $2\beta\times 2^t$ and is sampled from the error distribution.
+
+
+To convert from stage $t$ to $t+1$, we simply apply format conversion to pairs of shared-$a$ ciphertexts.
+The input ciphertexts to stage $t$ are described by the vectors $\mathbf{a}^{(t)}$ and $\mathbf{b}^{(t)}$, where $|\mathbf{a}^{(t)}|=2^{T-t}$, $|\mathbf{b}^{(t)}|=2^T$, and $(a^{(t)}_{\floor{i/2^t}}, b^{(t)}_i)$ encrypts message $i$. First, decompose each $a^{(t)}_i$ into $\beta$ components, extend the basis of each component to $P\cdot Q$, and define $\mathbf{A}^{(t)}$ to be the $2^{T-t-1}\times 2\beta$ matrix where row $i$ contains (the basis-extended decompositions of) $a^{(t)}_{2i}$ and $a^{(t)}_{2i+1}$.
+
+Then define $\mathbf{a}^{(t+1)} = \round*{\frac{1}{P}\cdot \mathbf{A}^{(t)}\cdot \mathbf{\tilde{a}}^{(t)}}$ and $\mathbf{b}^{(t+1)} = \round*{\frac{1}{P}\cdot \mathbf{A}^{(t)}\cdot \mathbf{\tilde{B}}^{(t)}} + \mathbf{b}^{(t)}$.
+
+Note that $|\mathbf{a}^{(T)}|=1$. Output $a^{(T)}_0$ and $\mathbf{b}^{(t)}$.
+
+The format-switching key contains $2\beta \log(n)+4\beta(n-1)$ ring elements mod $PQ$. The conversion process requires $2\beta n\log(n)$ ring multiplications (mod $PQ$), plus $2\beta(n-1)$ basis extensions and $(n+1)\log(n)$ rescales.
+
+\subsection{Further Optimization}
+The previous approach dramatically shrank the key size and reduced the number of ring multiplications during conversion. The cost, however, is an increased number of basis extensions and rescales. Craig pointed out that we could delay the rescaling on $\mathbf{b}^{(t)}$ until the very end, reducing the number of rescales.
+
+First, we redefine $\mathbf{b}^{(t)}$ as follows:
+\[\mathbf{b}^{(t)} = \begin{cases}
+	\mathbf{A}^{(0)}\cdot \mathbf{\tilde{B}}^{(0)} & \text{if $t=1$}\\
+	\mathbf{A}^{(t-1)}\cdot \mathbf{\tilde{B}}^{(t-1)} + \mathbf{b}^{(t-1)} & \text{otherwise}
+\end{cases}\]
+
+We output $a^{(T)}_0$ and $\round*{\frac{1}{P}\cdot \mathbf{b}^{(T)}} + \mathbf{b}^{(0)}$.
+
+This reduces the number of rescales to $n + log(n)$, at the (very small cost) of doing the addition of $\mathbf{b}^{(t-1)}$ mod $P\cdot Q$ instead of mod $Q$.
+
+\section{PC-MM}
+
+\subsection{External Approaches}
+In this section, we describe the most basic version of external PC-MM introduced in~\cite{cryptoeprint:2024/1284}. In the external view, reduce PC-MM to PP-MM by identifying ring elements with their (row) vectors of polynomial coefficients. For a ciphertext $(b, a)$ encrypted under a key $s$, the classic decryption equation (viewing $a$ and $b$ as ring elements) is $b+a\cdot s\approx \hat{m}$, where $\hat{m}$ is the encoding of the plaintext message $m$. In this view, we compute $a\cdot s$ by putting $a$ and $s$ in NTT form, multiplying coefficient-wise, and then applying iNTT.
+
+Alternately, we can view $a$ and $b$ as vectors of polynomial coefficients and do the ring arithmetic (i.e., polynomial reduction) using linear algebra:
+\[\vec{b} + \vec{a}\cdot\mathsf{Toep}(\vec{s}) \approx \hat{m},\]
+where $\mathsf{Toep}(\vec{s})\in\Z^{N\times N}$ is the Toeplitz matrix. Note that this requires $\mathcal{O}\parens*{N^2}$ operations, whereas using NTT only requires $\mathcal{O}\parens*{N\log(N)}$ operations.
+Recall from~\cref{sec:ckksencoding} that decoding can be accomplished by applying the matrix $U\in\C^{\frac{N}{2}\times N}$ to a column vector of message coefficients, so we can also write
+\[\mathrm{Decode}(\vec{b} + \vec{a}\cdot\mathsf{Toep}(\vec{s})) = (\vec{b} + \vec{a}\cdot\mathsf{Toep}(\vec{s}))\cdot U^\intercal \approx \hat{m}\cdot U^\intercal = m\]
+
+We can ``batch'' this decryption algorithm by stacking $d_2$ ciphertexts to form the rows of matrices $A, B\in \Z^{d_2\times N}$. Then
+\[\mathrm{Decode}(B + A\cdot\mathsf{Toep}(\vec{s})) = (B + A\cdot\mathsf{Toep}(\vec{s}))\cdot U^\intercal \approx \hat{M}\cdot U^\intercal = M,\]
+where $M\in\C^{d_2\times\frac{N}{2}}$.
+
+Thus to achieve PC-MM for a plaintext matrix $E\in\Z^{d_1\times d_2}$ and the encryption of a matrix $M\in\C^{d_2\times \frac{N}{2}}$, we simply encrypt $M$ row-wise into $d_2$ ciphertexts. The ciphertexts get encoded into matrices $A,B\in\Z_Q^{d_2\times N}$. We then compute $E\cdot A$ and $E\cdot B$, which corresponds to $d_1$ ciphertexts encrypting the rows of $E\cdot M$. This is easy to check by looking at the decryption\footnote{Under the original secret key, no key-switching needed} equation:
+\[E\cdot B + E\cdot A\cdot \mathsf{Toep}(\vec{s}) = E\cdot \parens*{B+A\cdot \mathsf{Toep}(\vec{s})} = E\cdot \hat{M}.\]
+
+Thus we have reduced a $d_1\times d_2\times \frac{N}{2}$ PC-MM to two $d_1\times d_2\times N$ PP-MMs.
+
+\subsubsection{PC-MM with a single matrix multiplication}
+The approach we have seen so far involved two matrix multiplications. \cite{cryptoeprint:2024/1284} describes an alternate approach that requires just one $d_1\times d_2\times N$ plaintext matrix multiplication.
+
+As before, $M\in\C^{d_2\times \frac{N}{2}}$, and we encrypt $M$ using $d_2$ ciphertexts. We then apply format-switching (c.f.~\cref{sec:format-switching}). This changes the decryption equation to
+\[\mathrm{Decode}(B + S\cdot\mathsf{Toep}(\vec{a})) = (B + S\cdot\mathsf{Toep}(\vec{a}))\cdot U^\intercal \approx \hat{M}\cdot U^\intercal = M,\]
+where $S\in\Z_Q^{d_2\times N}$ contains the secret keys output by format-switching in its rows. Note that $S$ is known at key-generation time, and in most applications, $E$ is also known in advance. This means that we can compute $S'=E\cdot S$ at key-generation time. 
+
+At runtime, we are given ciphertexts corresponding to the rows of $A$ and $B$, all encrypted under a key $s$. After applying format switching, we have a single $a$ and matrix $B'$ which corresponds to encryptions of the same messages under keys in the rows of $S$. We then compute $B''=E\cdot B'$. We claim that the shared-$a$ ciphertext $(a, B'')$ decrypts to $M$ under $S'$:
+\[\mathrm{Decode}(B'' + S'\cdot\mathsf{Toep}(\vec{a})) = E\cdot \parens*{B' + S\cdot\mathsf{Toep}(\vec{a})}\cdot U^\intercal \approx E\cdot \hat{M}\cdot U^\intercal = E\cdot M.\]
+
+At key-generation time, we would generate $d_1$ linear key-switch keys to switch from $s'_i$, the $i\th$ row of $S'$, to $s$, the original secret. After computing $B''$, we would then apply $d_1$ linear key-switches to convert the ciphertexts back to shared-$s$ format. Thus if the input is $d_2$ shared-$s$ ciphertexts and the target output is $d_1$ shared-$s$ ciphertexts, the overall flow would look like:
+\begin{enumerate}
+	\item Apply format-switching to $d_2$ ciphertexts ($\mathcal{O}\parens*{d_2\cdot N\log(N)}$)
+	\item Compute $B''=E\cdot B'$ ($\mathcal{O}\parens*{d_1\cdot d_2\cdot N}$)
+	\item Apply $d_1$ key-switches ($d_1\cdot N\log(N)$)
+	\item Rescale $a$ and $B''$ (if needed)\footnote{Note that rescaling must happen \emph{after} the key-switches, because $E\cdot S$ is very large; c.f.~\cref{sec:rescale_error}.}
+\end{enumerate}
+In a simple situation where $d_1=d_2=N/2$, the matrix multiplication step still dominates, with a complexity of $\mathcal{O}\parens*{N^3}$.
+
+This would require a format-switching key and $d_1$ key-switch keys. 
+This reduces PC-MM to a single PP-MM, plus the overhead of format-switching and key-switching.
+
+\subsubsection{Extension to $E\in\R^{d_1\times d_2}$}
+If $E\in\R^{d_1\times d_2}$ (real instead of integer), we must first ``encode'' $E$. However, we don't use the CKKS encoding algorithm; instead we simply apply the algorithm above to $E' = \round*{\Delta E}$. After multiplication, a rescale is required, since the plaintext scale is now $\Delta^2$.
+
+We note that~\cite{KHBC+21, HPCC+21, 10.5555/3618408.3619194} use a ``complexification'' technique to reduce the product of two real matrices to the product of two (smaller) complex matrices. It turns out that this technique doesn't provide any benefit for external PC-MM approach; see~\cref{sec:pcmm-complexification} for details.
+
+\subsubsection{Extension to $E\in\C^{d_1\times d_2}$}
+\label{sec:pcmm-complex}
+If $E\in\C^{d_1\times d_2}$, we first encode $E$ into $E'\in\Z[i]^{d_1\times d_2}$, a matrix of Gaussian integers, in the same was a the real case. We then write $E'=E'_\mathrm{real}+i\cdot E'_\mathrm{imag}$ for $E'_\mathrm{real}, E'_\mathrm{imag}\in\Z^{d_1\times d_2}$. Then $E'\cdot B = \parens*{E'_\mathrm{real}+i\cdot E'_\mathrm{imag}}\cdot B = E'_\mathrm{real}\cdot B + i\cdot E'_\mathrm{imag}\cdot B$. This reduces complex PC-MM to two $d_1\times d_2\times N$ PP-MMs, plus $d_1$ multiplications-by-$i$ and a matrix addition.
+
+We can alternatively take a more algebraic approach to this case. 
+\begin{lemma}
+	$\Z[X]/(X^N+1)\cong \Z[i][Y]/(Y^{N/2}-i)$
+\end{lemma}
+\begin{proof}
+	Let $\psi(X^{N/2})=Y$ be the isomorphism. For example $a_0+a_1\cdot X+a_2\cdot X^2+a_3\cdot X^3$ maps to $(a_0+a_2i) + (a_1+a_3i)\cdot X$.
+\end{proof}
+
+We abuse notation to write, e.g., $\psi(B)$ to mean $\psi$ applied to each row of $B$. Then $E'\cdot B = \psi^{-1}\parens*{E'\cdot \psi(B)}$, which we can compute directly as the product of two $d_1\cdot d_2\cdot \frac{N}{2}$ matrices over the Gaussian integers. This is nearly identical to the first approach, except that with the algebraic view, we can optionally replace the four multiplications needed to multiply two Gaussian integers with three multiplications and some extra additions.
+
+In short, though, we can complex PC-MM to one $d_1\times d_2\times N$ PP-MMs over Gaussian integers.
+
+
+
+
+%\section{Native Operations}
+%    \begin{itemize}
+%        \item Slot-wise addition/subtraction
+%        \item Slot-wise multiplication
+%        \item Slot-wise conjugation
+%        \item Slot-wise multiplication by $i$
+%        \item Cyclic rotation of slots		
+%    \end{itemize}
+%
+%
+%\section{Matrix Multiplication}
+%This section covers (application-layer) matrix multiplication.
+%
+%\begin{itemize}
+%    \item Shai did some work on multiplication via diagonals.
+%    \item \cite{cryptoeprint:2020/1483} My paper
+%    \item HETAL \cite{10.5555/3618408.3619194} improves on my work and gets a factor of 2-3x improvement.
+%\end{itemize}
 
     \ifcompileasbook
     \else

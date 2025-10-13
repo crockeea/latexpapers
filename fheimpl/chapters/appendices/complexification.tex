@@ -1,0 +1,17 @@
+\section{Optimized ``inside'' PC-MM for Real Matrices}
+\label{sec:pcmm-complexification}
+Suppose that $E\in \R^{d_1\times d_2}$ and $M\in\R^{d_2\times {N/2}}$, and $d_2=2\cdot d_2'$. 
+
+\cite{KHBC+21, HPCC+21, 10.5555/3618408.3619194} note that real dot products can be reduced to a (smaller) complex dot product. For real vectors $\vec{u}, \vec{v}\in\R^n$, $\inner{\vec{u},\vec{v}} = \mathfrak{Re}\parens*{\inner{\hat{u}, \hat{v}}}$, where $\hat{u}, \hat{v}\in\C^{n/2}$ and $\hat{u} = {u_0+u_1\cdot i, u_2+u_3\cdot i, ...}$ and $\hat{v} = {v_0-v_1\cdot i, v_2-v_3\cdot i, ...}$.
+
+Since matrix multiplication is just a bunch of dot products, this extends directly to matrix multiplication.
+
+Let $E'\in\C^{d_1\times d_2'}$ be the matrix formed by multiplying the 2nd, 4th, 6th, etc columns by $i$ and adding them to the 1st, 3rd, 5th etc columns.
+
+Let $M'\in\C^{d_2'\times {N/2}}$ be the matrix formed by multiplying the 2nd, 4th, 6th, etc rows by $i$ and subtracting them from the 1st, 3rd, 5th etc rows.
+
+This reduces $d_1\times d_2\times \frac{N}{2}$ real/real PC-MM to $d_1\times \frac{d_2}{2}\times \frac{N}{2}$ complex/complex PC-MM. When using ``internal'' PC-MM techniques, this reduces the amount of work. We now examine this technique in the context of the ``external'' PC-MM approach.
+
+As noted in~\cref{sec:pcmm-complex}, this reduces to $d_1\times \frac{d_2}{2}\times \frac{N}{2}$ PP-MM over the Gaussian integers. Using the basic equivalence of four integer multiplications for one Gaussian integer multiplication, this requires $d_1\cdot d_2\cdot N$ integer multiplications. 
+
+If we don't use this trick, the real/real PC-MM reduces to one $d_1\times d_2\times N$ PP-MM over the integers, which also requires $d_1\cdot d_2\cdot N$ integer multiplications. The conclusion is that this trick doesn't actually reduce the amount of work required for a real/real PC-MM.

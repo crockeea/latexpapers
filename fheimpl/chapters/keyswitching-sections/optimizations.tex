@@ -1,0 +1,39 @@
+% !TeX root = ../../fheimpl.tex
+\documentclass[../../fheimpl.tex]{subfiles}
+
+\begin{document}
+	\ifcompileasbook
+	\else
+	\title{Key Switching}
+	\hypersetup{pageanchor=false}
+	\maketitle
+	\listoffixmes
+	\tableofcontents
+	\compileasbooktrue
+	\hypersetup{pageanchor=true}
+	\fi
+	
+	\section{Key Switching Optimizations}
+	
+	\subsection{Integer Arithmetic Decomposition}
+	\cite{cryptoeprint:2023/413} introduces a key-switching optimization that takes advantage of the decomposition step in key-switching. In short, the idea is to decompose the key-switch keys using a decomposition identical to the key-switch input decomposition (but over the larger key-switch-key basis). Since the decomposed key-switch key pieces and input pieces correspond to a subset of the RNS basis, the polynomial coefficients (over the integers) are no larger than the product of the moduli corresponding to the basis of the partition. Let $Q_0, \ldots, Q_\beta$ be the partition moduli for the input, and $\tilde{Q}_0, \ldots, \tilde{Q}_{\beta'}$ be the partition moduli for the key-switch keys.
+	
+	Mathematically, the decomposed pieces live in $\mathcal{R}$ rather than $\mathcal{R}_Q$. In~\cite{cryptoeprint:2023/413}, instead of computing a dot product between the decomposed input and the key-switch keys, we compute a vector-matrix multiplication between the decomposed input and the decomposed key-switch keys, where each decomposed key-switch key forms one row of the matrix. If we truly computed the products over $\mathcal{R}$, we would have to use naive polynomial multiplication. Instead, we select independent ``good'' primes $\mathcal{P}'=\set{p'_0, \ldots p'_e}$ such that 
+	\[\prod_{i=0}^e p'_i > N\cdot \parens*{\sum_{j=0}^t Q_j} \cdot \max_{0\le \ell\le t'}\parens*{\tilde{Q}_\ell}\]
+	
+	To generate key-switch keys, we use the same algorithm as in basic key-switching. We then select an RNS partition for the normal primes union the special primes and decompose each key-switch key into $\beta'$ pieces. We then use basis conversion to change the basis from the partition basis to the $\mathcal{P}'$ basis. The result is a matrix in $\mathcal{R}_{\mathcal{P}'}^{\beta\times 2\times \beta'}$.
+	
+	During key-switching, we decompose the input as before, but do a basis change from the partition basis to $\mathcal{P}'$. We convert each piece into NTT form, and treat the output as a row vector. This gets multiplied by the key-switch matrix. The result is in $\mathcal{R}_{\mathcal{P}'}^{2\times \beta'}$. We compute iNTT on each piece, convert the basis from $\mathcal{P}'$ back to the corresponding partition basis, and then concatenate the bases to form two ring elements over the full key-switch basis. The rest of key-switching proceeds as before.
+	
+	The idea here is that the dot product of decomposed values is bounded by $\prod_{i=0}^e p'_i \ll Q\cdot P$, so there's no reason to do basis extension to the full $Q\cdot P$. The result is less-expensive basis conversion and far fewer NTTs. The cost is 
+	\begin{itemize}
+		\item more multiplications (though these are cheap compared to NTTs)
+		\item more iNTTs. The original method only requires two iNTTs, this approach requires $2\beta'$ iNTTs.
+		\item an additional basis conversion step
+	\end{itemize}
+	
+	Though this is typically less overall work, it doesn't appear advantageous in hardware. For DESILO-FHE's silver parameters, I only got about a 3\% savings in cores. Unrolling once yielded slightly better results: a 2x speedup for 50\% more cores. 
+	
+	
+	
+	

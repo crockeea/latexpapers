@@ -120,7 +120,7 @@ FHE typically operates over the $m\th$ cyclotomic [polynomial] ring $R=\Z[X]/(\P
 
 We can multiply two polynomials in this ring using textbook polynomial multiplication. In the $p=2$ case, this amounts to replacing occurrences of $X^N$ with $-1$. This requires $\mathcal{O}(\phi(m)^2)$ operations. As noted above, we can do this much faster by using the convolution theorem. In the standard power-of-two cyclotomic ring, the connection to the convolution theorem is that we define $F^{-1}$ as the matrix whose \emph{rows} are the eigenvectors. This is apparently an equally valid way to look at the relationship between $F$ and $F^{-1}$, though we note it yields different operators than if we instead make $F$ have eigenvector columns.
 
-Under this definition of $F$ and $F^{-1}$, the $i\th$ row of the forward transformation $F^{-1}$ is $\set{\omega_m^{(2i+1)j}}_{j\in[0,N)}$, i.e., it corresponds to evaluation at $\omega_m^{(2i+1)}$. This can be viewed as a tweak to DFT, and therefore enjoys a similar decomposition to DFT. Specifically, $\mathsf{DFT}_{m/2}$ evaluates its input at $\omega_{m/2}^i=\omega_m^{2i}$ for $i\in[0,{m/2})$. Therefore, we just need to shift the evaluation from $\omega_m^{2i}$ to $\omega_m^{2i+1}$, which we can do my pre-multiplying by a diagonal matrix $\hat{T}_m$, which is the $\frac{m}{2}\times\frac{m}{2}$ diagonal matrix with $\omega_m^i$ in the $i\th$ diagonal entry. Another way to look at this is that the diagonal matrix $\hat{T}_m$ shifts the \emph{columns} of $\mathsf{DFT}_{m/2}$. Recall that the $i\th$ row of $\mathsf{DFT}_{m/2}$ evaluates the polynomial at $\omega_{m/2}^i$,\footnote{In this intuition, we use the standard order and ignore bit reversal for simplicity.} and hence contains sequential powers of $\omega_{m/2}^i$. The $j\th$ entry of $\hat{T}_m$ is $\omega_m^j$, so
+Under this definition of $F$ and $F^{-1}$, the $i\th$ row of the forward transformation $F^{-1}$ is $\set{\omega_m^{(2i+1)j}}_{j\in[0,N)}$, i.e., it corresponds to evaluation at $\omega_m^{(2i+1)}$. This can be viewed as a tweak to DFT, and therefore enjoys a similar decomposition to DFT. Specifically, $\mathsf{DFT}_{m/2}$ evaluates its input at $\omega_{m/2}^i=\omega_m^{2i}$ for $i\in[0,{m/2})$. Therefore, we just need to shift the evaluation from $\omega_{m/2}^i=\omega_m^{2i}$ to $\omega_m^{2i+1}$, which we can do my pre-multiplying by a diagonal matrix $\hat{T}_m$, which is the $\frac{m}{2}\times\frac{m}{2}$ diagonal matrix with $\omega_m^i$ in the $i\th$ diagonal entry. Another way to look at this is that the diagonal matrix $\hat{T}_m$ shifts the \emph{columns} of $\mathsf{DFT}_{m/2}$. Recall that the $i\th$ row of $\mathsf{DFT}_{m/2}$ evaluates the polynomial at $\omega_{m/2}^i$,\footnote{In this intuition, we use the standard order and ignore bit reversal for simplicity.} and hence contains sequential powers of $\omega_{m/2}^i$. The $j\th$ entry of $\hat{T}_m$ is $\omega_m^j$, so
 \[\omega_{m/2}^{i\cdot j}\cdot \omega_m^j = \omega_{m}^{2i\cdot j}\cdot \omega_m^j = \omega_m^{(2i+1)\cdot j}.\]
 Thus the twiddle matrix transforms $\mathsf{DFT}_m/2$ to evaluate the polynomial at odd powers of $\omega_m$, i.e., $\omega_m^i$ for $i\in\Z_m^*$.
 
@@ -175,44 +175,96 @@ Next we consider $\mathcal{O}(n\log{n})$ multiplication in the Gaussian ring $\Z
     \[m(X) = \frac{1}{N}\parens*{\overline{U}^\intercal\cdot z+U^\intercal \cdot \overline{z}}\]
 
     \subsection{Decomposition}
-    \cite{cryptoeprint:2018/1043} introduces a sparse decomposition, similar to the NTT decomposition above, for the decoding matrix. For the purposes of this section, we define $\ell=N/2$, where $N$ is the ring dimension, and $m=2N$ is the cyclotomic index.
+    \label{sec:sfdecomp}
+    \cite{cryptoeprint:2018/1043} introduces a sparse decomposition, similar to the NTT decomposition above, for the decoding matrix. For the purposes of this section, we define $n=N/2$, where $N$ is the ring dimension, and $m=2N$ is the cyclotomic index.
 
-    First, it defines a ``special Fourier transform'' matrix $\mathsf{SF}_\ell$ which evaluates the polynomial at $\omega_m^{2k+1}$ for $k\in[0, N/2)$. \cite{cryptoeprint:2018/1043} gives a dense matrix description, but it doesn't make much sense to me. Instead, I reverse-engineered a sparse decomposition from the efficient code they gave:
-    \[\mathsf{SF}_\ell = (\mathsf{DFT}_2\otimes I_{\ell/2})\cdot \tilde{T}_\ell\cdot(I_2\otimes \mathsf{SF}_{\ell/2})\]
-    This formulation doesn't make much sense to me; I prefer to view it as an NTT over $\C$. It's clear that we can alternately write
-    \[\mathsf{SF}_\ell = \Pi\cdot \mathsf{NTT}_{N/2} = \Pi\cdot \mathsf{DFT}_{N/2} \cdot \hat{T}_N\]
+    First, it defines a ``special Fourier transform'' matrix $\mathsf{SF}_n$ which evaluates the polynomial at $\omega_m^{5^k}$ for $k\in[0, n)$. Note that this is the same set as $\omega_m^{1+4k}$, but in a different order. \cite{cryptoeprint:2018/1043} gives a dense matrix description, but it doesn't make much sense to me. However, we can view $\mathsf{SF}$ as an NTT over $\C$. As a result, we can write
+    \[\mathsf{SF}_n = \Pi\cdot \mathsf{NTT}_N = \Pi\cdot \mathsf{DFT}_n \cdot \hat{T}_N\]
     where $\Pi$ is a permutation matrix that maps the NTT output order (either bit-reversed or natural, if applying bit-reversal) to the order $\omega^{5^j \bmod 2N}$, which is preferable for rotations.    
     
-    We also need the transpose (note: not the inverse!):
-    \[\mathsf{SF}^\intercal_\ell = (I_2\otimes \mathsf{SF}_{\ell/2}^\intercal)\cdot \tilde{T}_\ell\cdot(\mathsf{DFT}_2\otimes I_{\ell/2}),\]
-    note that $\mathsf{DFT}_2$ and $\tilde{T}_\ell$ are symmetric.
-    Similar to the DFT/NTT decompositions, $\mathsf{SF}_\ell$ expects its \emph{input} to be in bit-reversed order and produces normal-order output, while $\mathsf{SF}^\intercal_\ell$ expects normal-order input and produces bit-reversed-order output.
+%    We also need the transpose (note: not the inverse!):
+%    \[\mathsf{SF}^\intercal_n = (I_2\otimes \mathsf{SF}_{n/2}^\intercal)\cdot \tilde{T}_n\cdot(\mathsf{DFT}_2\otimes I_{n/2}),\]
+%    note that $\mathsf{DFT}_2$ and $\tilde{T}_n$ are symmetric.
+%    Similar to the DFT/NTT decompositions, $\mathsf{SF}_n$ expects its \emph{input} to be in bit-reversed order and produces normal-order output, while $\mathsf{SF}^\intercal_n$ expects normal-order input and produces bit-reversed-order output.
 
     Note that (assuming proper use of bit-reversal), $U=[\mathsf{SF} | i\cdot \mathsf{SF}]$. When we apply $U$ in decoding, we split the input $y$ into the first half $y_1$ and second half $y_2$. Then $U\cdot y = \mathsf{SF}\cdot (y_1+i\cdot y_2)$.
 
     Similarly the the encoding function can be described as
-    \[\frac{1}{N}\parens*{\overline{U}^\intercal\cdot z+U^\intercal \cdot \overline{z}}\cdot x = \frac{2}{N}\cdot (\mathfrak{Re}(\mathsf{SF}^\intercal\cdot x) | -\mathfrak{Im}(\mathsf{SF}^\intercal\cdot x)).\]
+    \[\frac{1}{N}\parens*{\overline{U}^\intercal\cdot z+U^\intercal \cdot \overline{z}} = \frac{2}{N}\cdot (\mathfrak{Re}(\mathsf{SF}^\intercal\cdot \overline{z}) | -\mathfrak{Im}(\mathsf{SF}^\intercal\cdot \overline{z})).\]
+    
+    We can simplify the encoding function by noting that $\mathsf{SF}^{-1} = \frac{2}{N}\overline{\mathsf{SF}}^\intercal$.\footnote{Note that $\mathsf{SF}^{-1}$ uses $\mathsf{DFT}_{N/2}^{-1}$, which is $\frac{2}{N}\cdot \overline{\mathsf{DFT}_{N/2}}^\intercal$.} Therefore, the encoding operation can be computed as:
+    \begin{align}
+    	\frac{2}{N}\cdot (\mathfrak{Re}(\mathsf{SF}^\intercal\cdot \overline{z}) | -\mathfrak{Im}(\mathsf{SF}^\intercal\cdot \overline{z})) &= \frac{2}{N}\cdot (\mathfrak{Re}(\overline{\mathsf{SF}^\intercal\cdot \overline{z}}) | \mathfrak{Im}(\overline{\mathsf{SF}^\intercal\cdot \overline{z}})) \\
+    	&= \mathfrak{Re}(\mathsf{SF}^{-1}\cdot z) | \mathfrak{Im}(\mathsf{SF}^{-1}\cdot z)
+    \end{align}
+    
+    See~\cref{sec:bts-s2c-decomp} for an alternate decomposition that is more useful for bootstrapping.
+
+\section{A Word on DIF, DIT, and BitReversal}
+At this point, we have seen that NTT and decoding are essentially the same, over different fields. Either can be expressed using a ``decimation-in-time'' (DIT) or ``decimation-in-frequency'' (DIF) style. With DIF, in the forward direction, the input is in natural order and the output is in bit-reversed order. Put another way, it evaluates a polynomial with natural-order coefficients at roots of unity, but the evaluation points are in bit-reversed order. By contrast, with DIT in the forward direction, the input is in bit-reversed order and the output is in natural order. Therefore, DIT takes polynomial coefficients in bit-reversed order and evaluates the polynomial at target roots of unity in natural order.
+
+Generally, the choice for NTT doesn't much matter, but there are several options that an implementation could choose for encoding, and these turn out to have a major impact:
+\begin{itemize}
+	\item DIF encoding with bit-reversal
+	\item DIF encoding without bit-reversal
+	\item DIT encoding with bit-reversal
+	\item DIF encoding without bit-reversal
+\end{itemize}
+First note that ``DIF with bit-reversal'' and ``DIT with bit-reversal'' are identical, because these algorithms implement the exact same linear transform with the same input and output orderings. So really there are only three options to consider. The choice of the NTT implementation depends on the encoder choice.
+
+Let's consider the case of using bit-reversal. In this case, the slots are encoded in the order that the application expects, and the polynomial representation is with respect to the standard polynomial basis order. Operations that depend on the basis order, such as $\mathsf{MulByX}$, $\mathsf{Embed}$, Gaussian/Integer isomorphism, $\mathsf{CoeffsToCosets}$, and automorphisms are therefore implemented in the standard basis order. With this choice, we can implement NTT using DIF with or without final bit-reversal, because it doesn't matter which order the NTT evaluations are in. Alternately, we could use DIT with bit-reversal for the NTT.
+
+Now suppose we use DIF \emph{without} bit-reversal. This means that the polynomial coefficients are in standard order (so no change to the operations listed above), but the slots are permuted. This means that operations like rotations are much harder, if not impossible. This could ultimately bleed into the application layer, which would be disastrous. With this choice, we can implement NTT using DIF with or without final bit-reversal, because it doesn't matter which order the NTT evaluations are in. Alternately, we could use DIT with bit-reversal for the NTT.
+
+On the other hand, if we implement DIT without bit-reversal, the slots are in the order that the application expects, but the polynomial coefficients are permuted. This makes operations that depend on the polynomial basis ordering more complex. With this choice, we would implement NTT using DIT without bit-reversal, since it is the only choice that handles polynomial coefficients in bit-reversed order.
+
+Why, then, would an implementation choose to \emph{not} use bit-reversal in encoding? Unfortunately, there's a very good reason: bootstrapping. Recall that bootstrapping involves homomorphic encoding and decoding. It turns out that there is an alternate factorization of bit-reversed $\mathsf{SF}$ that yields a more symmetric decomposition than the one given above. This is the factorization used in the ``slots-to-coeffs'' (decoding) and ``coeffs-to-slots'' (encoding) steps of bootstrapping.\footnote{Typically, we have a ciphertext that encrypts slots. If we want to move the slots to the coefficients of the plaintext, we need to apply a linear transform on the coefficients that yields the slots. That's exactly what the \emph{decoding} function does, hence $\mathrm{S2C}$ is just homomorphic decoding.} If we use a DIT encoding without bit-reversal, this corresponds to a nice factorization for the homomorphic transforms. If instead we apply bit-reversal in encoding, we have to \emph{undo} the bit-reversal prior to applying the nice factorization. Applying bit-reversal is apparently a very costly operation homomorphically, hence it may be preferred to use the DIT encoding sans bit-reversal.
+
+There is one more option, however. Suppose we implement encoding with bit-reversal, so that the application layer and the polynomial layer are sane. In bootstrapping, we will use a decimation-in-frequency decomposition for encoding/decoding that does \emph{not} include bit reversal. This enables an efficient implementation. Since bootstrapping rounds slot-wise, the order of the slots doesn't matter. The inverse transform expects bit-reversed slots, which brings back a standard polynomial ordering after bootstrapping. See~\cref{ch:bootstrapping} for more details.
 
 \section{Multiplication}
     \cite{cryptoeprint:2023/1788} shows how to reduce the modulus consumption of multiplication by decomposing ciphertexts into smaller components, akin to large-word multiplication: if $x_0,x_1$ are both $2k$ bits, we can write them as $x_i = 2^kx_{i,1} + x_{i,0}$. It's also a bit like composite scaling, since performance degrades quadratically in the size of the decomposition.
     
-    The authors argue that using a decomposition of size two (i.e., as in the example above) halves modulus consumption, and thereby enables an application to use half the ring dimension (while maintaining the same number of levels as the original ring dimenison with regular multiplication).
+    The authors argue that using a decomposition of size two (i.e., as in the example above) halves modulus consumption, and thereby enables an application to use half the ring dimension (while maintaining the same number of levels as the original ring dimension with regular multiplication).
     
     The implementation seems very complex, and it may be subsumed by other options.
 
 \section{Automorphisms}
 \label{sec:automorphisms}
-One simple operation is to apply a ring automorphism to a ciphertext. The automorphism $\sigma_i$ maps $X$ to $X^i$ for some $i\in \Z_N^*$. Actually computing the automorphism is relatively simple: we apply a permutation to the coefficients.
-\[c_{i\cdot j\bmod N} = 
+One simple operation is to apply a ring automorphism to a ciphertext. The automorphism $\sigma_k$ maps $X$ to $X^k$ for some $k\in \Z_m^*$ for cyclotomic index $m$. For a ciphertext $\parens*{a, b}$ encrypting a message $t$, the ciphertext $\parens*{\sigma_k(a), \sigma_k(b)}$ decrypts to $\sigma_k(t)$ under the key $\sigma_k(s)$. We consider different rings below.
+
+\subsection{Power-of-two Integer Rings}
+We consider the cases where the input is in coefficient form and NTT form.
+
+In coefficient form, we simply apply the variable substitution and reduce. Specifically, the coefficients of the output are
+\[c_{j\cdot k\bmod N} = 
 \begin{cases}
-	c_j  & \text{if $c_{i\cdot j\bmod N} < N$}\\
+	c_j  & \text{if $j\cdot k\bmod m < N$}\\
 	-c_j & \text{otherwise}
-\end{cases}\]
+\end{cases}\] 
 This is because in the former case, we would replace $X^N$ by $-1$ an even number times, while in the latter case, we replace it an odd number of times.
 
-The ciphertext $\parens*{\sigma_i(a), \sigma_i(b)}$ decrypts to $\sigma_i(m)$ under the key $\sigma_i(s)$. To understand the complex vector $v$ encoded by $\sigma_i(m)$, recall that (mathematically), we evaluate $\sigma_i(m)(X)$ at (complex) roots of unity $\zeta_i$ for $i\in[0, N/2)$, where $\zeta_i = \zeta^{5^i}$ for a $2N\th$ root of unity $\zeta$. These correspond to \emph{half} of the \emph{primitive} $2N\th$ roots of unity because $5$ generates $\Z_{2N}^*$. Due to the conjugate symmetry of the space $\mathcal{H}$, evaluating $m(X)$ at the other primtive roots of unity yield conjugates of the first evaluations, which is why we skip them. $\sigma_i(m)(\zeta_j)$ evaluates $m$ at $\zeta^{i\cdot 5^j}$. Since $i$ must be odd and $5^j$ is odd, $i\cdot 5^j$ is odd mod $2N$, hence if $i\cdot 5^j=5^k$ for some $k \in [0, N/2)$, the $j\th$ index of the permuted plaintext corresponds to the $k\th$ index of the original plaintext.
+We can also apply the automorphism in the NTT basis. In the evaluation basis, $\sigma_k$ maps evaluation at $\omega^j$ to $\omega^{j\cdot k}$ for $j\in\Z_m^*$ in the order $1, 3, 5, \ldots$.\footnote{Note that bit-reversal may apply depending on your NTT.} Assuming for now that the NTT is not bit-reversed, we can apply the automorphism in the NTT basis as follows:
+\[c_{\mathrm{BR}\parens*{\frac{(j\cdot k \bmod m) - 1}{2}}} = 
+ 	c_{\mathrm{BR}\parens*{\frac{j - 1}{2}}}.\]
+This is slightly simpler than applying $\sigma_k$ in the coefficient basis because there is only one case to consider, and we don't need to track a constant.
 
-The other case is that $i\cdot 5^j=5^k+N$ for some $k \in [0, N/2)$. Note that $5^k+N=-5^k\bmod 2N$, and recall that $m(\zeta^{5^k})=\overline{m(\zeta^{-5^k})}$\enote{to be proved}. As a result, the $j\th$ index of the permuted plaintext corresponds to the \emph{conjugate} of the $-k\th \bmod 2N$ index of the original plaintext. Therefore conjugation of the plaintext slots is induced by $\sigma_{2N-1}$.
+\subsection{Gaussian Ring}
+We only consider coefficient form for the Gaussian ring; the NTT form is more complex. First, we need some algebra background. Like the integer ring, the Gaussian ring is a $\Z$-algebra, meaning it embeds $\Z$. Any automorphism fixes $\Z$ pointwise (because the definition of a homomorphism fixes $1$). As a result, we must consider how the automorphism acts not only on the polynomial indeterminant, but also on $i$. Since $i^4=i$, we only need to consider $k\bmod 4$. We're also assuming that $k\in\Z_m^*$, so we only need to consider the cases of $k\equiv 1\bmod 4$ (which isn't very exciting) and $k\equiv 3\bmod 4$. In the latter case, $i\mapsto i^3=-i$. This means that before applying the automorphism to the indeterminant, we conjugate each coefficient.
+
+After possibly conjugating each coefficient, we then apply the automorphism to the indeterminant. In coefficient form, we simply apply the variable substitution and reduce. Specifically, the coefficients of the output are
+\[c_{j\cdot k\bmod n} = 
+\begin{cases}
+	c_j  & \text{if $j\cdot k\bmod m < n$}\\
+	i\cdot c_j  & \text{if $n\le j\cdot k\bmod m < 2n$}\\
+	-c_j  & \text{if $2n\le j\cdot k\bmod m < 3n$}\\
+	-i\cdot c_j & \text{otherwise}
+\end{cases}\] 
+
+\subsection{Prime Ring}
+We only consider coefficient form for prime rings for now. An important identity is that $\Phi_p(X)\cdot (X-1) = X^p-1$. Since $\Phi_p(X)=0$ in $\Z[X]/(\Phi_p(X))$, $X^p-1=0\Rightarrow X^p=1$ in this ring. This means that we only need to consider the index mod $p$.
+
+Start by initializing all of the new coefficients to 0. If $j\cdot k\equiv p-1 \bmod p$, subtract $c_j$ from all of the new coefficients. Otherwise, set $c_{j\cdot k \bmod p} = c_j$.
 
 \subsection{Hoisting}
 If we need to apply multiple automorphisms to the same ciphertext, we can apply (double-) hoisting. For this technique, we split key-switching into two steps:
@@ -230,6 +282,9 @@ The full process then is:
 	\item Add the original input ciphertext to complete the keyswitch.
 	\item Apply the corresponding automorphism to each output ciphertext.
 \end{enumerate}
+
+\section{Conjugation}
+Since $\sigma_k$ maps a slot evaluated at $\omega^j$ to the slot evaluated at $\omega^{j\cdot k}$ and evaluation at $\omega^{-j}$ is the conjugate of evaluation at $\omega^j$, conjugation corresponds to $\sigma_{-1}=\sigma_{m-1}$.
 
 \section{Binary CKKS}
     \cite{cryptoeprint:2022/1298} introduces exact binary operations using CKKS. \cite{cryptoeprint:2025/074} improves upon this to add free XOR gates. \cite{cryptoeprint:2024/767} introduces optimized bootstrapping for this special case of CKKS.

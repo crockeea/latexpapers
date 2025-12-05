@@ -17,7 +17,7 @@
 	
 	Note: in this section, we are primarily concerned with encoded plaintexts, so when we say that a ciphertext encrypts a plaintext, we mean an \emph{encoded} plaintext [polynomial]. We have been using the notation $\hat{m}$ for this object, but we drop the hat here for simplicity.
 	
-	We now describe the high-level structure of ring-switching. Let $m(X)$ be an encoded plaintext polynomial in a ring of dimension $N=2^\ell$, and let $n=2^k$ such that $k<\ell$. Define the \emph{index} as $r:=[\mathcal{R}_N : \mathcal{R}_n]=N/n$. Define an operation $\mathsf{Break}_n(\cdot)$ that, on input a polynomial $d(X)=\sum_{j=0}^{N-1}c_j\cdot X^j$, outputs a set of polynomials $d_i(X)=\sum_{j=0}^{n-1} c_{j\cdot r+i}\cdot X^j$ for $r=N/n$ and $i\in[0, r)$. We can write $d(X)=\sum_{i=0}^{r-1} d_i(X^r)\cdot X^i$.
+	We now describe the high-level structure of ring-switching. Let $m(X)$ be an encoded plaintext polynomial in a ring of dimension $N=2^\ell$, and let $n=2^k$ such that $k<\ell$. Define the \emph{index} as $r:=[\mathcal{R}_N : \mathcal{R}_n]=N/n$. Define an operation $\mathsf{Break}_n(\cdot)$ that, on input a polynomial $d(X)=\sum_{j=0}^{N-1}c_j\cdot X^j$, outputs a set of polynomials $d_i(X)=\sum_{j=0}^{n-1} c_{j\cdot r+i}\cdot X^j$ for $r=N/n$ and $i\in[0, r)$. We can write $d(X)=\sum_{i=0}^{r-1} d_i(X^r)\cdot X^i$. We note that $\set{X^i}_{i\in[0,r)}$ is the \emph{relative power basis} of $\mathcal{R}_N=\Z[X]/(X^N+1)$ over $\mathcal{R}_n=\Z[Y]/(Y^n+1)$~\cite{cryptoeprint:2015/1134}. This means that we can write an element of $\mathcal{R}_N$ as a polynomial (in $X$) of degree $<r$ with coefficients in $\mathcal{R}_n$, where $Y=X^r$.
 	
 	Given a polynomial $p(X)\in \mathcal{R}_n$, we can embed it into $\mathcal{R}_N$ by evaluating it at $X^r$, i.e., if $p(X)=\sum_{i=0}^{n-1} c_i\cdot X^i \in \mathcal{R}_n$, then $\tilde{p}(X)=p(X^r) = \sum_{i=0}^{n-1}c_i\cdot X^{r\cdot i}\in \mathcal{R}_N$.
 	
@@ -109,7 +109,7 @@
 	\subsection{Switching from $m=2^{17}$ to $2^{10}\cdot 17$}
 	This section discusses a specific instance of a more general form of ring-switching, where one of the rings does not have a power-of-two cyclotomic index.
 	
-	Concretely, we will switch from $R=\Z[Z]/(Z^{2^{16}}-1)$ to $S=\Z[i][X,Y,W]/(X^{2^8}-i, Y^{2^8}-i, \Phi_{17}(W))$. Note that we will primarily use $i$ as an index and not as $\sqrt{-1}$; uses should be clear from context. The former ring has $2^{15}$ slots while the latter ring has $2^{20}$ slots, thus each element $m(X,Y,W)$ will be composed of 32 elements $u_i(Z)$. Let $p=17$, $n=256$, $\zeta_i = \zeta^{5^i}$ where $\zeta$ is a $4n\th$ root of unity, $\eta_\ell=\eta^{5^\ell}$ where $\eta$ is a $17\th$ root of unity, and $\xi_i=\xi^{5^i}$ where $\xi$ is a ${2^{17}}\th$ root of unity.
+	Concretely, we will switch from $R=\Z[Z]/(Z^{2^{16}}+1)$ to $S=\Z[i][X,Y,W]/(X^{2^8}-i, Y^{2^8}-i, \Phi_{17}(W))$. Note that we will primarily use $i$ as an index and not as $\sqrt{-1}$; uses should be clear from context. The former ring has $2^{15}$ slots while the latter ring has $2^{20}$ slots, thus each element $m(X,Y,W)$ will be composed of 32 elements $u_i(Z)$. Let $p=17$, $n=256$, $\zeta_i = \zeta^{5^i}$ where $\zeta$ is a $4n\th$ root of unity, $\eta_\ell=\eta^{5^\ell}$ where $\eta$ is a $17\th$ root of unity, and $\xi_i=\xi^{5^i}$ where $\xi$ is a ${2^{17}}\th$ root of unity.
 	
 	
 	Though there are many ways we could encode $m(X,Y,W)$ into the $u_i(Z)$, we will target the following encoding:
@@ -119,7 +119,24 @@
 	
 	
 	
+	\subsection{Simple}
+	Let $\Xi_{2^k}(X) = X^{2^{k-2}} - i$ be the Gaussian counterpart to $\Phi_{2^k}(X)$.
 	
+	Concretely, we will switch from $R=\Z[i][Z]/(\Xi_{2^{14}}(Z))$ to $S=\Z[i][X,W]/(\Xi_{2^{10}}(X), \Phi_{17}(W))$. Note that we will primarily use $i$ as an index and not as $\sqrt{-1}$; uses should be clear from context. Both rings hold $2^{12}$ slots.
+	
+	Let $p=17$, $n=256$, $\zeta_i = \zeta^{5^i}$ where $\zeta$ is a $4n\th$ root of unity, $\eta$ is a $17\th$ root of unity, and $\xi_i=\xi^{5^i}$ where $\xi$ is a ${2^{14}}\th$ root of unity.
+	
+	We will view messages in $R$ as corresponding to a tensor with shape $(256, 16)$.
+	
+	Let $E=\Z[i][X]/(\Xi_{2^{10}}(X)) = R \cap S$ be the largest common subring of $R$ and $S$. The $E$-basis for $R$ is ${1, Z, Z^2, \ldots, Z^{15}}$. We can write any element $r\in R$ as $r=\sum_{i=0}^{15} e_i(Z^{16})\cdot Z^i$, where $e_i\in E$.
+	
+	Let $r\in R$ and $s=L(r)$. Our goal is $L\parens*{r\parens*{\xi^{5^j}}} = s\parens*{\zeta^{j\bmod 256}, \eta^{\floor{j/256}}}$.  Per~\cite{cryptoeprint:2015/1134}, the function $L: R\rightarrow S$ is completely determined by how $L$ acts on the $E$-basis of $R$.
+	\begin{align*}
+		L\parens*{r\parens*{Z}} &= L\parens*{\sum_{i=0}^{15} e_i\parens*{X}\cdot Z^i} \\
+		  &= \sum_{i=0}^{15} e_i\parens*{X}\cdot L\parens*{Z^i} \\
+		  &= \sum_{i=0}^{15} e_i\parens*{X}\cdot \ell_i(X, W)
+	\end{align*}
+
 	\ifcompileasbook
 	\else
 	\printbibliography

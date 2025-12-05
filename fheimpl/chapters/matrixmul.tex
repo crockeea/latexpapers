@@ -21,7 +21,7 @@ In general, we can consider several variations of simple linear algebra tasks:
 	\item Encrypted matrix times encrypted matrix (CC-MM)
 \end{itemize}
 
-The first solutions to tackle these problems attempted to simulate the operations on plaintexts~\cite{cryptoeprint:2014/106, cryptoeprint:2018/1041, cryptoeprint:2020/1483, 10.5555/3618408.3619194, cryptoeprint:2025/1367}. More recent approaches involve operating on ciphertext coefficients directly~\cite{cryptoeprint:2024/1284, cryptoeprint:2025/448}.
+The first solutions to tackle these problems attempted to simulate the operations on plaintexts; see, e.g.,~\cite{cryptoeprint:2014/106, cryptoeprint:2018/1041, cryptoeprint:2020/1483, 10.5555/3618408.3619194, cryptoeprint:2025/1367}, among others. More recent approaches involve operating on ciphertext coefficients directly~\cite{cryptoeprint:2024/1284, cryptoeprint:2025/448, cryptoeprint:2025/1935, cryptoeprint:2025/1957}.
 
 Note that when we discuss multiplying an $\ell\times k$ matrix times a $k\times m$ matrix, we refer to this using abbreviated notation as a ``$\ell\times k\times m$'' product.
 
@@ -157,7 +157,24 @@ We abuse notation to write, e.g., $\psi(B)$ to mean $\psi$ applied to each row o
 
 In short, though, we can complex PC-MM to one $d_1\times d_2\times N$ PP-MMs over Gaussian integers.
 
+\section{Batching Small PC-MMs}
+The technique of~\cite{cryptoeprint:2024/1284} works when the matrix dimensions match the \emph{ring} dimension. The latter, however, is lower-bounded by security considerations, meaning that~\cite{cryptoeprint:2024/1284} only works for very large matrices. \cite{cryptoeprint:2025/1935,cryptoeprint:2025/1957} both solve this problem by manipulating a large ring to enable batching of smaller PC-MMs. They differ in how they encode the matrices and which rings are used.
 
+Ultimately, both methods employ matrices of ring elements, where each ring element encodes the corresponding entry of each of the batched matrices. Multiplying the matrices of ring elements results in batched matrix multiplication.
+
+\subsection{Gentry-Lee PC-MM}
+This approach uses the ring $\Z_q[i][X,W]/(X^n-i, \Phi_p(W))$ for a prime $p$. This enables batching $p-1$ $n\times n$ PC-MMs.
+
+\subsubsection{Encoding}
+
+\subsection{CKL PC-MM}
+
+\subsubsection{Encoding}
+Let $M\in\R^{N\times N}$. This can be encrypted by $N$ ciphertexts in $\Z[X]/(X^N+1)$, where each ciphertext encrypts a column of $M$.
+
+We use the isomorphism $\mathcal{R}_{N,q}=\Z[X]/(X^N+1) \cong \mathcal{R}_{k,q}^d$ via $m(X)=\sum_{i=0}^{d-1} m_i(Y)\cdot X^i$, where $Y=X^d$. Note that this is the same as the first step of ring-switching.
+
+Let $k \mid N$, $d=N/k$, and $M'\in R^{d\times d'}_{q, k}$. We can encrypt $M'$ with $d'$ ciphertexts by encrypting the columns of $M'$. Each column is in $\parens*{\mathcal{R}_{k,q}}^d\cong \mathcal{R}_{N,q}$.
 
 
 %\section{Native Operations}

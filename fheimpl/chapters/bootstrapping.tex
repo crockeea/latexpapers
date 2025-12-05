@@ -11,9 +11,8 @@
         \compileasbooktrue
         \hypersetup{pageanchor=true}
     \fi
-
     \section{Introduction}
-    This chapter delves into CKKS bootstrapping; see~\cite{cryptoeprint:2023/149} for an accessible introduction. In CKKS, we must \emph{rescale} a ciphertext after\footnote{Or before, if using~\cite{cryptoeprint:2020/1118}.} each multiplication. Rescaling removes a modulus (or equivalently, increments the level of the ciphertext), hence, if the computation is deep enough, we eventually run out of moduli, and can do no more multiplications. Bootstrapping is a process which effectively ``resets'' the ciphertext to a lower level, thereby enabling addition multiplications. See\cref{sec:ckksencoding} for relevant background details.
+    This chapter delves into CKKS bootstrapping; see~\cite{cryptoeprint:2023/149} for an accessible introduction. In CKKS, we must \emph{rescale} a ciphertext after\footnote{Or before, if using~\cite{cryptoeprint:2020/1118}.} each multiplication. Rescaling removes a modulus (or equivalently, increments the level of the ciphertext), hence, if the computation is deep enough, we eventually run out of moduli, and can do no more multiplications. Bootstrapping is a process which effectively ``resets'' the ciphertext to a lower level, thereby enabling addition multiplications. See~\cref{sec:ckksencoding} for relevant background details.
     
     \subsection{High-Level Description}
     Bootstrapping involves four steps:
@@ -25,23 +24,25 @@
     \end{enumerate}
     We explore these steps in more detail below.\footnote{Note that when the input ciphertext is not fully packed, we need another step after ModRaise. When the input is fully packed, which we assume to be the case, this extra step is the identity function, so we can ignore it. We also note that when the input is not fully packed, the output of CoeffsToSlots can be a \emph{single} ciphertext rather than two. See, e.g.,~\cite{cryptoeprint:2018/1043} for details.}
     
-    \textbf{ModRaise} In bootstrapping, the input is a ciphertext $ct$ that encrypts $m(X)$ mod $q$. The first step is to raise the modulus to $Q \gg q$, with the idea being that $t(X)$ doesn't wrap mod $Q$ since $I(x)$ has small coefficients. Therefore, $\bracks{\inner{ct, sk}}_Q = t(X)$, so we can view $ct$ as an encryption of $t(X)$ mod $Q$. 
+    \textbf{ModRaise} In bootstrapping, the input is a ciphertext $ct$ that encrypts $m(X)$ mod $q$, specifically,
+    \[\inner{ct, sk} = t(X) = m(X)+q\cdot I(x)\in R.\]
+    The first step is to raise the modulus to $Q \gg q$, with the idea being that $t(X)$ doesn't wrap mod $Q$ since $I(x)$ has small coefficients. Therefore, $\bracks{\inner{ct, sk}}_Q = t(X)$, so we can view $ct$ as an encryption of $t(X)$ mod $Q$. 
     
     Since we seek an encryption of $m(X) \bmod Q'$ (for some $Q'$ hopefully only slightly smaller than $Q$), we need to evaluate reduction mod $q$ on the coefficients of $t(X)$. But homomorphic evaluation works on the \emph{slots} of $t(X)$, not the coefficients of $t(X)$. Therefore, we need to somehow get the coefficients of $t(X)$ into the slots of one or more ciphertexts. Since $t(X)$ has $N$ coefficients and a ciphertext has $N/2$ slots, we will in fact put the coefficients of $t(X)$ into exactly two ciphertexts. The CKKS encoding function $\tau^{-1}$ is specifically for transforming a vector of coefficients (say, half of the coefficients of $t(X)$) into a plaintext polynomial which encodes that vector in its slots.  
     
     \textbf{CoeffsToSlots} After the ModRaise step, $ct$ encrypts $t(X)\bmod Q$, which encodes some plaintext vector $z$ in its slots. Note that if we had $z$ as a plaintext vector and then encoded it, the result would be $t(X)$, i.e., $z=\tau(t(X))$. The process, then, is to \emph{homomorphically} apply the encoding function to the ModRaised ciphertext, which will (roughly) put the coefficients $t(X)$ into the \emph{slots} of the ciphertext. As noted above, we need to split this process into two pieces since there are twice as many coefficients as slots. 
     
-    Logically, split the coefficients of $t(X)$ into $t_0, t_1\in\Z^{N/2}\subset\C^{N/2}$. We can divide $U$ into $U_0$ and $U_1$, where $U_0$ is the left $\frac{N}{2}\times\frac{N}{2}$ submatrix of $U$, and $U_1$ is the right submatrix. Then
-    \[t_k = \frac{1}{N}\parens*{\overline{U_k}^\intercal\cdot z + U_k^\intercal\cdot\overline{z}}.\]
+    Logically, split the coefficients of $t(X)$ into $t_0, t_1\in\Z^{N/2}\subset\C^{N/2}$. Using the formula from~\cref{sec:sfdecomp}, encoding can be computed as
+    \[\mathfrak{Re}(\mathsf{SF}^{-1}\cdot z) | \mathfrak{Im}(\mathsf{SF}^{-1}\cdot z).\]
     
-    Thus if we homomorphically apply (half of) the encoding function to the ModRaised input, the result is a ciphertext with half of the coefficients of $t(X)$ in its slots.
+    Thus we compute $\mathsf{SF}^{-1}\cdot z$, then output $\mathfrak{Re}(\mathsf{SF}^{-1}\cdot z)$ and $ \mathfrak{Im}(\mathsf{SF}^{-1}\cdot z)$, which hold $t_0$ and $t_1$, respectively, in their slots.
     
     \textbf{EvalMod} At this point, we have two ciphertexts, each of which encode half of the coefficients of $t(X)$ in their slots. We now need to approximate the modular reduction function on each slot. After this step, each ciphertext will encode half of the coefficients of $m(X)$ in their slots. The typical way to apply modular reduction is with a polynomial approximation; see~\cref{sec:polyapprox}. 
     Note that it is desirable to minimize the domain of the approximation as much as possible since a larger implies a larger polynomial degree, which in turn increases the circuit depth, thereby decreasing the utility after bootstrapping. As noted in footnote~\ref{footnote:sparsekey}, the domain is directly related to the structure of the secret key. Early works relied on a sparse (i.e., low Hamming-weight) secret, but after attacks against sparse secrets were demonstrated, later works showed how to bootstrap on non-sparse secrets.
     
-    \textbf{SlotsToCoeffs} Now that we have the coefficients of $m(X)$ in the slots of two ciphertext, we need to reverse the CoeffsToSlots procedure to move the values in the slots back to the coefficients of the plaintext polynomial. Let $v$ be the slots encoded in $m(X)$. If we had $v$ in the slots of our ciphertext, then the ciphertext would necessarily encrypt $m(X)$, which is what we want. Therefore, we want to homomorphically apply the \emph{decoding} function to the ciphertext which encode the coefficients of $m(X)$ in their slots. 
+    \textbf{SlotsToCoeffs} Now that we have the coefficients of $m(X)$ in the slots of two ciphertexts, we need to reverse the CoeffsToSlots procedure to move the values in the slots back to the coefficients of the plaintext polynomial. Let $v$ be the slots encoded in $m(X)$. If we had $v$ in the slots of our ciphertext, then the ciphertext would necessarily encrypt $m(X)$, which is what we want. Therefore, we want to homomorphically apply the \emph{decoding} function to the ciphertext which encode the coefficients of $m(X)$ in their slots. 
     
-    If we have a vector $x\in \R^N$ split into two halves $x_0, x_1$, $U\cdot x = U_0x_0+U_1x_1$. Therefore, we apply the linear transformation $U_k$ to the corresponding ciphertext and add the results. The output is a single ciphertext which encodes $v$ in its slots, i.e., it decrypts to $m(X)$ as desired.
+    As noted in~\cref{sec:sfdecomp}, we can apply the decoding function by computing $\mathsf{SF}\cdot (y_1+i\cdot y_2)$, where $y_1$ and $y_2$ are the slots of the two input ciphertexts. 
 	
     \section{Implementation Details}
     
@@ -60,26 +61,98 @@
     \subsection{CoeffsToSlots and SlotsToCoeffs}
     From an implementation perspective, these steps are essentially identical: they consist of applying an $\frac{N}{2}\times \frac{N}{2}$ linear transform to the slots of a ciphertext.
     
-    There are several shortcuts we can take during the computation. First, in CoeffsToSlots, we need to evaluate $\frac{1}{N}\parens*{\overline{U_k}^\intercal\cdot z + U_k^\intercal\cdot\overline{z}}$, which nominally requires two linear transforms for $k=0$ and two linear transformations for $k=1$. However, $U_k^\intercal\cdot\bar{z} = \overline{\overline{U_k}^\intercal\cdot z}$, so we only need to apply a single linear transformation per $k$, followed by a (slot-wise) conjugation. Conjugation is much cheaper than applying a linear transformation, so this is much more efficient.
-    
-    We can actually get away with only evaluating a \emph{single} linear transformation total, though. Let $A=\overline{U_0}^\intercal\cdot z$. Then $z_0=\frac{1}{N}(A+\overline{A})$, and $z_1 = \frac{i}{N}(A-\overline{A})$, though this is not obvious (to me). We note that multiplication by $i$ is also relatively cheap.
-    
+    There are several shortcuts we can take during the computation. First, in CoeffsToSlots, we need to evaluate $\mathfrak{Re}(\mathsf{SF}^{-1}\cdot z)$ and $ \mathfrak{Im}(\mathsf{SF}^{-1}\cdot z)$. For a complex number $c$, $\mathfrak{Re}(c) = \frac{c+\overline{c}}{2}$, and $\mathfrak{Im}(c) = \frac{c-\overline{c}}{2}$. Therefore we scale our linear transforms to compute $\mathsf{SF}^{-1} / 2$, the compute $y =(\mathsf{SF}^{-1}/2)\cdot z$, and output $y\pm \overline{y}$.
+        
     See~\cref{ch:lineartransforms} for how to apply a linear transformation to an encrypted input. The original bootstrapping paper~\cite{cryptoeprint:2018/153} uses the matrix/vector multiplication algorithm from~\cref{sec:helibmatmulalgs}.\footnote{\cite{cryptoeprint:2018/153} makes no mention of the baby-step/giant-step optimization from~\cite{cryptoeprint:2018/244}, which was contemporaneous. \cite{cryptoeprint:2018/1043} indicates that~\cite{cryptoeprint:2018/153} did use the optimization.}
     
-    \subsubsection{FFT-Like Decomposition}
-    While $\tau$ is not quite an FFT, \cite{cryptoeprint:2018/1043} observed that it admits an FFT-like decomposition. This increases the number of levels consumed by these steps, but reduces the number of operations. In particular, they define the $\frac{N}{2}\times\frac{N}{2}$ ``special Fourier Transform'' matrix
+    \subsubsection{Coeffs-Bootstrapping Decomposition}
+    \label{sec:bts-s2c-decomp}
+    While $\tau$ is not quite an FFT, \cite{cryptoeprint:2018/1043, cryptoeprint:2018/1073} observed that it admits an FFT-like decomposition. Specifically, I reverse-engineered a sparse decimation-in-time (DIT) decomposition from the efficient code in~\cite{cryptoeprint:2018/1073}:
+    \[\mathsf{SF}_n\cdot P = \mathsf{SF}' = (\mathsf{DFT}_2\otimes I_{n/2})\cdot \tilde{T}_n\cdot(I_2\otimes \mathsf{SF}'_{n/2}),\]
+    where $\tilde{T}_\ell$ is the diagonal matrix with $w_\ell^{\floor{2i / \ell}\cdot 5^{i\bmod \ell/2}}$ in the $i\th$ diagonal position, and $P$ is the bit-reversal matrix.
     
-    \[\mathsf{SF}=
-    \begin{bmatrix}
-        1 & \zeta_0 & \zeta_0^2 & \ldots & \zeta_0^{\frac{N}{2}-1} \\
-        1 & \zeta_1 & \zeta_1^2 & \ldots & \zeta_1^{\frac{N}{2}-1} \\
-        \vdots & \vdots & \vdots & \ddots & \vdots \\
-        1 & \zeta_{\frac{N}{2}-1} & \zeta_{\frac{N}{2}-1}^2 & \ldots & \zeta_{\frac{N}{2}-1}^{\frac{N}{2}-1} \\
-        
-    \end{bmatrix}
-    \]
+    Using this decomposition, we can apply C2S and S2C in fewer operations at the cost of consuming more levels.
+    Since we apply $\mathsf{SF}$, then round coefficient-wise, then invert $\mathsf{SF}$, the slot order of the output of the C2S step doesn't matter, as long as it matches the input order for S2C. This algorithm uses $\mathcal{O}(\log(N))$ depth and operations, while if we try to apply $\mathsf{SF}$ directly as an unstructured linear transform, we need one level and $\mathcal{O}(N)$ operations.
     
-    They note that $U=[\mathsf{SF}\mid i\cdot\mathsf{SF}]$, and that \textsf{SF} can be implemented as bit-reversal (a permutation) followed by a sequence of butterflies. However, since we apply $U$, then round coefficient-wise, then invert $U$, we can ignore the bit-reversal step. This algorithm uses $\mathcal{O}(\log(N))$ depth and operations, while if we try to apply $U$ directly as an unstructured linear transform, we need one level and $\mathcal{O}(N)$ operations.
+%    \cite{cryptoeprint:2018/1073} shows that 
+%    \[\mathsf{SF}_n\cdot P = \mathsf{SF}' = \begin{bmatrix}
+%    	\mathsf{SF}'_{n/2} & W_{n/2} \cdot \mathsf{SF}'_{n/2} \\
+%    	\mathsf{SF}'_{n/2} & -W_{n/2} \cdot \mathsf{SF}'_{n/2}
+%    \end{bmatrix},
+%    \]
+%    where $S_2 = \mathsf{DFT}_2$, $S_1=[1]$, and $W_{n/2}=\mathrm{diag}(1, \omega_{4n}, \ldots, \omega_{4n}^{n/2-1})$ for an $4n\th$ root of unity $w_{4n}$.
+    
+    Applying this decomposition given above recursively, we can write
+    \[\mathsf{S2C}^\mathsf{coeffs}=\mathsf{SF}_n\cdot P = E_n^{(n)}\cdot E_{n/2}^{(n)}\cdot\ldots E_2^{(n)},\ \text{where}\]
+    \[E_k^{(n)} = I_{n/k}\otimes ((\mathsf{DFT}_2\otimes I_{n/2})\cdot \tilde{T}_{n})\]
+    
+    It can be seen that $\mathrm{diag}_i(E_k^{(n)})$ is nonzero only for $k=0, \pm k/2$, where $\mathrm{diag}_i(M) = (M_{0, i}, M_{1, 1+i}, \ldots , M_{n-1, n-1+i})$. For example, 
+    \[E_n^{(n)} = \begin{bmatrix}
+    	I_{n/2} & I_{n/2} \\
+    	I_{n/2} & -I_{n/2}
+    \end{bmatrix}\cdot \tilde{T}_n,\]
+    which is nonzero on diagonal 0 and diagonal $\pm n/2$.
+    
+    Using the the matrix/vector multiplication equation $M\cdot v = \sum_{i=0}^n \mathrm{diag}_i(M)\odot \mathrm{rot}_i(v)$, we can write 
+    \[E_{2^i}^{(n)} = \mathrm{diag}_0\parens*{E_{2^i}^{(n)}}\odot v + \mathrm{diag}_{2^{i-1}}\parens*{E_{2^i}^{(n)}}\odot \mathrm{rot}_{2^{i-1}}(v) + \mathrm{diag}_{-2^{i-1}}\parens*{E_{2^i}^{(n)}}\odot \mathrm{rot}_{-2^{i-1}}(v).\]
+    We can therefore compute $\mathsf{SF}\cdot \mathsf{BR} \cdot v$ in $2\log_2(n)$ rotations and $3\log_2(n)$ Hadamard multiplications, and $\log_2(n)$ depth.
+    
+    We can reduce the depth by using a radix $r=2^j$. The method described above is radix 2; we can get  a higher radix by multiplying $j$ adjacent $E$ matrices together. The product of $j$ $E$ matrices has at most $2^{j+1}-1=2r-1$ non-zero diagonals. To see this, note that the indices of the nonzero diagonals of $E_n\cdot E_{n/2}$ are $jn/4$ for $j\in[-3,3]$. The result is that we can compute $\mathsf{SF}\cdot P \cdot v$ in $\mathcal{O}(r\log_r(n))$ rotations and Hadamard multiplications, and $\log_r(n)$ depth. This is a depth/efficiency tradeoff.
+    
+	We can combine this with the baby-step/giant-step approach to further reduce the number of rotations.
+	Specifically, we need to compute $\sum_{i=-2^{k+1}+1}^{2^{k+1}-1} \mathrm{diag}_{\ell i}(M)\odot \mathrm{rot}_{\ell i}(v)$ for a sparse matrix $M$ and some constant $\ell$. Pick $k_1, k_2$ such that $k_1\cdot k_2\ge 2r-1$. Then
+	\begin{align}
+	\sum_{i=-2^{k+1}+1}^{2^{k+1}-1} \mathrm{diag}_{\ell i}(M)\odot \mathrm{rot}_{\ell i}(v) &= \sum_{i=-k_1/2}^{k_1/2-1}\sum_{j=0}^{k_2-1} \mathrm{diag}_{\ell \cdot (k_2\cdot i+j)}(M)\odot \mathrm{rot}_{\ell \cdot (k_2\cdot i+j)}(v) \\
+	&= \sum_{i=-k_1/2}^{k_1/2-1}\mathrm{rot}_{\ell\cdot k_2\cdot i}\parens*{\sum_{j=0}^{k_2-1} \mathrm{rot}_{-\ell\cdot k_2\cdot i}\parens*{\mathrm{diag}_{\ell \cdot (k_2\cdot i+j)}(M)}\odot \mathrm{rot}_{\ell \cdot j}(v)}
+	\end{align}
+	
+	This ``hybrid'' approach only requires $\sqrt{2r-1}$ rotations, which also reduces the number of rotation keys needed.
+	
+	\subsubsection{Slots-Bootstrapping Decomposition}
+	I derived a 
+	
+	The previous section gives decompositions for coeffs-bootstrapping (ModRaise $\rightarrow$ C2S$ \rightarrow$ EvalMod $\rightarrow$ S2C). In this section, we give alternate decompositions for slots bootstrapping, which uses the order S2C $\rightarrow$ ModRaise $\rightarrow$ C2S $\rightarrow$ EvalMod. The reason we need alternate decompositions is bit reversal: the previous decomposition for C2S computed the encoding function, but resulted in bit-reversed outputs. That was not a problem for bootstrapping since it works slot-wise, and since the decomposition for S2C expected bit-reversed inputs and produced natural-order outputs. However, in slots-bootstrapping, we evaluated S2C first. As a result, we need a decomposition for decoding with bit-reversed \emph{outputs}, which we can derive from the following decimation-in-frequency (DIF) version of the $\mathsf{SF}$ decomposition:
+	\[\mathsf{SF}_\ell = (I_{\ell/2} \otimes \mathsf{DFT}_2)\cdot \tilde{T}'_\ell\cdot(\mathsf{SF}_{\ell/2}\otimes I_2),\]
+	where $\tilde{T}'_\ell$ is $\tilde{T}_\ell$  with the rows and columns in bit-reversed order.
+	
+	We write 
+	\[\mathsf{S2C}^\mathsf{slots}=P\cdot \mathsf{SF}_n = F_n^{(n)}\cdot F_{n/2}^{(n)}\cdot\ldots F_2^{(n)},\ \text{where}\]
+	\[F_k^{(n)} = ((I_{k/2}\otimes \mathsf{DFT}_2)\cdot\tilde{T}'_k) \otimes I_{n/k},\ \text{and}\]
+	\[\tilde{T}'_k = P\cdot \tilde{T}_k\cdot P.
+	\]
+	
+	\subsubsection{Quick Reference}
+	C2S is \emph{encoding}, S2C is \emph{decoding}.
+	
+	\textbf{Coeffs Bootstrapping}
+	
+	Order: $\mathrm{ModRaise}\rightarrow\mathsf{C2S}\rightarrow\mathrm{EvalMod}\rightarrow\mathsf{S2C}$
+
+	\begin{align*}
+		\mathsf{S2C}_n &= \mathsf{SF}_n\cdot P \\
+		&= (\mathsf{DFT}_2\otimes I_{n/2})\cdot \tilde{T}_n\cdot(I_2\otimes \mathsf{S2C}_{n/2}) \\
+		&= \overbrace{\parens*{\parens*{\mathsf{DFT}_2\otimes I_\frac{n}{2}}\cdot \tilde{T}_n}}^{E_n^{(\ell)}}\cdot
+		\overbrace{\parens*{I_2\otimes \parens*{\parens*{\mathsf{DFT}_2\otimes I_\frac{n}{4}}\cdot \tilde{T}_\frac{n}{2}}}}^{E_{n/2}^{(\ell)}}\cdot\ldots\cdot
+		\overbrace{\parens*{I_\frac{n}{2}\otimes \parens*{\mathsf{DFT}_2\cdot \tilde{T}_2}}}^{E_2^{(\ell)}} \\
+		\\
+		\mathsf{C2S}_n &= P\cdot \mathsf{SF}^{-1}_n
+	\end{align*}
+	
+	\hfill \break
+	
+	\textbf{Slots Bootstrapping}
+
+	Order: $\mathsf{S2C}\rightarrow\mathrm{ModRaise}\rightarrow\mathsf{C2S}\rightarrow\mathrm{EvalMod}$
+	
+	\begin{align*}
+		\mathsf{S2C}_n &= P\cdot \mathsf{SF}_n \\
+		&= (I_{n/2} \otimes \mathsf{DFT}_2)\cdot \tilde{T}'_n\cdot(\mathsf{S2C}_{n/2}\otimes I_2) \\
+		&= \overbrace{\parens*{\parens*{I_\frac{n}{2}\otimes\mathsf{DFT}_2}\cdot \tilde{T}'_n}}^{F_n^{(\ell)}}\cdot
+		\overbrace{\parens*{\parens*{\parens*{I_\frac{n}{4}\otimes \mathsf{DFT}_2}\cdot \tilde{T}'_\frac{n}{2}}\otimes I_2}}^{F_{n/2}^{(\ell)}}\cdot\ldots\cdot
+		\overbrace{\parens*{\parens*{\mathsf{DFT}_2\cdot \tilde{T}'_2}\otimes I_\frac{n}{2}}}^{F_2^{(\ell)}} \\
+		\\
+		\mathsf{C2S}_n &= \mathsf{SF}^{-1}_n\cdot P
+	\end{align*}
 
     \subsubsection{Batching}
     If we need to bootstrap multiple ciphertexts at the same time, we can get improvements by batching multiple SlotsToCoeffs/CoeffsToSlots together. See~\cref{sec:la-batching} for details.
@@ -138,6 +211,11 @@
     
     It seems that~\cite{cryptoeprint:2024/767} is \emph{not} the root source for this technique, and that it is also not necessarily specific to bootstrapping bits.
     
+    We can think of the process described above as ``bootstrapping the [plaintext] coefficients'' in the sense that we raise the modulus of the plaintext polynomial and then apply the modular reduction to it. In ``slots bootstrapping'', we apply S2C first, so that the coefficients of the plaintext polynomial are the values of the [inputs'] slots. We can therefore think of the input to bootstrapping as being the coefficients-encoding of the plaintext message. ModRaise, C2S, and EvalRound, however, work exactly the same way: we raise the modulus of the coefficients-encoded message, move the raised-coefficients (back) to slots, and apply the rounding/modular reduction.
+    
+    
+    
+    
     \subsection{Functional Bootstrapping}
     \cite{cryptoeprint:2024/1623, cryptoeprint:2024/1637, cryptoeprint:2024/1638} introduce functional bootstrapping (also known as programmable bootstrapping) for CKKS. \cite{cryptoeprint:2024/1623} seems to subsume the other two, and it essentially incorporates an approximation of the function to evaluate into the \textsf{EvalMod} step. Note that this applies the function to the polynomial coefficients, rather than the slots, though. This seems less-than-desirable. \enote{More to learn here.}
 
@@ -176,6 +254,8 @@
 
     \section{Also}
     \cite{cryptoeprint:2024/767} describes how to adapt and optimize bootstrapping when using~\cite{cryptoeprint:2022/1298}, which uses CKKS for exact boolean operations.
+    
+    \cite{cryptoeprint:2025/1403} reduces the depth of bootstrapping independently of most other optimizations.
 
     \ifcompileasbook
     \else

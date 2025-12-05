@@ -68,7 +68,7 @@ Using Garner's algorithm, we can achieve rescaling in $\mathcal{O}(|\mathcal{C}|
 
 Using FBC, we can achieve rescaling in $\mathcal{O}(|\mathcal{B}|+|\mathcal{B}||\mathcal{C}|)$ (but the constant in front of $|\mathcal{B}|$ is now at least 2).
 
-Using~\cref{sec:fastscaling}, we can achieve rescaling in $\mathcal{O}(\abs{C}+\abs{B}\cdot \abs{C})$. We should prefer this over FBC, especially since $\abs{C}$ is typically very small.
+Using~\cref{sec:fastscaling}, we can achieve rescaling in $\mathcal{O}(\abs{\mathcal{C}}+\abs{\mathcal{B}}\cdot \abs{\mathcal{C}})$. We should prefer this over FBC, especially since $\abs{\mathcal{C}}$ is typically very small.
 
 \subsection{Rescaling with Standard Representatives}
 Many software libraries natively use the ``standard representative'' $\abs{x}_q\in [0, q)$ as the $\Z$-representative of an element of $\Z_q$, rather than the canonical representative in $\bracks{x}_q\in [\ceil{-q/2}, \floor{q/2})$. With this notation, we can now consider rescaling with standard representatives.

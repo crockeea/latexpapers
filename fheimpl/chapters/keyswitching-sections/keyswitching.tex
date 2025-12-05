@@ -59,7 +59,7 @@ To determine the implications of the parameter $k$, we need to consider the comp
 \begin{itemize}
 	\item Decompose is a no-op.
 	\item ModRaise requires $\mathcal{O}(\ell^2 + \ell\cdot k)$ ring operations.
-	\item DotProduct requires $\mathcal{O}(\frac{\ell^2}{k}+\ell)$ ring operations, plus $\mathcal{O}(\frac{\ell^2}{k}+\ell+k)$ NTTs. The NTTs dominate, hence this step requires $\mathcal{O}((\frac{\ell^2}{k}+\ell+k)\cdot N\log N)$ arithmetic operations.
+	\item DotProduct requires $\mathcal{O}(\frac{\ell^2}{k}+\ell)$ ring operations, plus $\mathcal{O}(\beta(\ell+k))\approx \mathcal{O}(\frac{\ell^2}{k}+\ell)$ NTTs. The NTTs dominate, hence this step requires $\mathcal{O}((\frac{\ell^2}{k}+\ell)\cdot N\log N)$ arithmetic operations.
 	\item ModDown requires $\mathcal{O}(\ell\cdot k + k^2 + \ell)$ ring operations.
 \end{itemize}
 

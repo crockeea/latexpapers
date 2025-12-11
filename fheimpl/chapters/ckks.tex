@@ -283,6 +283,29 @@ The full process then is:
 	\item Apply the corresponding automorphism to each output ciphertext.
 \end{enumerate}
 
+\section{Cyclic Slot Rotation}
+\subsection{Two-power Cyclotomics}
+Recall that the $i\th$ slot of a power-of-two message is the evaluation of the plaintext polynomial at $\omega_m^{5^i}$:
+\[p\parens*{\omega_m^{5^i}} = \sum_j p_i\cdot \parens*{\omega^{5^i}}^j\]
+
+Now consider what happens if we apply an automorphism $5^k$ before decoding:
+\[\sigma_{5^k}\parens*{p}\parens*{\omega_m^{5^i}} = \sum_j p_i\cdot \parens*{\omega^{5^i}}^{j\cdot 5^k}= \sum_j p_i\cdot \parens*{\omega^{5^{i+k}}}^j\]
+Therefore, the $i\th$ slot of the shifted polynomial corresponds to the $i+k\bmod m$ slot of the original plaintext, where the $\bmod m$ is induced by the fact that $\omega_m^m=1$.
+
+Therefore, we can induce \emph{left} cyclic rotation by $k$ places by applying $\sigma_{5^k}$.
+
+\subsection{Prime Cyclotomics}
+To get rotations to work at all, we must encode the inputs using a multiplicative order, like the power-of-two case. The obvious choice is to pick a generator for $\Z_p^*$. However, a prime cyclotomic only has $\frac{p-1}{2}$ true slots. When using a generator for $\Z_p^*$, it's possible for rotations to end up with \emph{conjugates} of one or more of the input slots. 
+
+When $p\equiv 3\bmod 4$, we can instead choose a generator for the quadratic residue subgroup of $\Z_p^*$, which should resolve the problem, though I haven't investigated thoroughly. There are indeed some complicating factors here, though this should work if carefully done.
+
+When $p\equiv 1 \bmod 4$, we cannot use this trick. The only solution might be to mask out the conjugated slots and the non-conjugated slots, conjugate the former, and add them together. As a result, rotations incur consumption of one level.
+
+\subsection{Composite Cyclotomics}
+The issue with rotations in prime rings isn't a problem when there is additionally a factor of two in the cyclotomic index. For $m=2^k\cdot p^e$, there are $2^{k-2}\cdot \phi(p^e)$ slots. Powers of 5 mod $2^k$ perfectly cover the $2^{k-2}$ slots in the power-of-two dimension, and powers of a generator $g$ for $\Z_{p^e}^*$ perfectly cover the $\phi(p^e)$ slots in the prime-power dimension. In short, the problem with prime rings was caused by the fact that there are $\phi(m)/2$ slots, but the generator (particularly in the $p\equiv 1\bmod 4$ case) has order $\phi(m)$. By happy chance, this isn't a problem for powers of two, and in the composite case, we treat these two factors as different dimensions in the cyclotomic ring. Therefore, we associated the factor of two to the two-power ring where it isn't a problem, leaving the prime ring to have a full set of slots.
+
+The same solution can be found in composite rings without a power-of-two as long as at least one of the primes is congruent to 3 mod 4.
+
 \section{Conjugation}
 Since $\sigma_k$ maps a slot evaluated at $\omega^j$ to the slot evaluated at $\omega^{j\cdot k}$ and evaluation at $\omega^{-j}$ is the conjugate of evaluation at $\omega^j$, conjugation corresponds to $\sigma_{-1}=\sigma_{m-1}$.
 

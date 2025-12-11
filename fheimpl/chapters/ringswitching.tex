@@ -142,4 +142,26 @@
 	\printbibliography
 	\fi
 	
+	\section{Ring Tunneling}
+	$\Lambda\circ\lambda$~\cite{cryptoeprint:2015/1134} introduced ring-tunneling as an efficient way to switch between different cyclotomic rings via their greatest common subring. The paper introduces ring-tunneling in the context of BGV homomorphic encryption; we give a adaptation for CKKS here. In this section, let $R$ be the source ring with cyclotomic index $m$, $S$ be the target/destination ring with cyclotomic index $m'$, and $E$ be the cyclotomic ring with index $\gcd(m, m')$. Then $E\subseteq R$ and $E\subset S$. An $E$-basis of $R$ is a set of $\frac{m}{\gcd(m, m')}$ elements $\set{v_i}$ of $R$ such that any element $r\in R$ can be written as $\sum_{i} e_i\cdot v_i = \sum_{i} \mathrm{embed}_{E\rightarrow R}(e_i)\cdot v_i$ for some elements $e_i\in E$ specific to $r$.
+	
+	Ring tunneling allows us to induce an arbitrary $E$-linear function $L$. A function is $E$-linear if $L(r+r') = L(r) + L(r')$ for all $r, r'\in R$ and if $e\cdot L(r) = L(e\cdot r)$ for all $e\in E, r\in R$.
+	
+	In an offline phase, we computing $L$ on the $E$-basis of $R$. In the online phase, we decompose an input $r$ into its $E$-basis coefficients, the recombine them with the translated $E$-basis into an element of $S$:
+	\[L(r) = L\parens*{\sum_i e_i \cdot v_i} = \sum_i e_i\cdot L(v_i)\]
+	by the definition of $L$ being $E$-linear.
+	
+	In the general setting, this operation must coincide with a keyswitch from a key in $R$ to a key in $S$, so the entire process can be computed via a modified key-switch. Specifically, we compute key-switch keys for $s_\mathrm{in}\cdot L(v_i)\in R$ to $s_\mathrm{out}$. In the online phase, given a ciphertext $(a, b)$:
+	\begin{enumerate}
+		\item Decompose $a$ and $b$ into their $E$-basis coefficients $\set{a_i}$ and $\set{b_i}$.
+		\item Compute $b' = L(b) = \sum_i b_i\cdot L(v_i)$.
+		\item Compute $a'_i = \mathrm{embed}_{E\rightarrow S}(a_i)$ and $b'_i = L(v_i)\cdot \mathrm{embed}_{E\rightarrow S}(b_i)$.
+		\item Apply the special key-switch to $(a'_i, b'_i)$. The output decrypts to $a'_i\cdot L(v_i)\cdot s_\mathrm{in} + L(v_i)\cdot b_i$
+		\item Sum up the result.
+	\end{enumerate}
+	
+	In the context of CKKS, ring-tunneling requires rescaling because we typically think about ring-tunneling as it affects the slots, so $L(v_i)$ is typically an encoded ring element which includes a scale factor $\Delta$. Therefore, after the steps above, we would apply a rescale.
+	
+	As an example, we can consider a setting where $R=E$ and we have several $R$ elements that we wish to combine into a single $S$ element. In this setting, the $E$-basis of $R$ is the singleton $\set{1}$. Note that embedding both components of a ciphertext into $S$ results in replicating the slots of the input across all the slots of the output by concatenating adjacent copies of the input slots. We want to mask out a specific copy of the input slots and add it to the masked slots of the other pieces. It's clear that $L(v_i)$ should encode the message $[0, 0, 0, \ldots, 1, 1, \ldots 1, 0, 0, \ldots 0]$.
+	
 \end{document}

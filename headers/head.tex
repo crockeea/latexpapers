@@ -34,7 +34,14 @@
 \input{\CurrentFilePath/thmhead}
 
 % bibliography: *bibnames controls how many names get written in the bibliography before truncation to 'et. al', while *alphanames controls how many author names are used in the citation lable (e.g., Bae+22 vs BCD+22). See https://mirror.las.iastate.edu/tex-archive/macros/latex/contrib/biblatex/doc/biblatex.pdf
-\usepackage[backend=biber,style=alphabetic,minbibnames=4,maxbibnames=6,minalphanames=3,maxalphanames=3]{biblatex}
+% giveinits means use "E. Crockett" instead of "Eric Crockett"
+% terseinits means use "J.H. Cheon" instead of "J. H. Cheon"
+% style=alphabetic sets the citation style to CCK+23
+% maxbibnames=6: if a paper has six or fewer authors, all are printed
+% minbibnames=4: if a paper exceeds the max, show only the first four
+% maxalphanames=3: papers with three or fewer authors will include an initial for each author in the citation
+% minalphanames=3: papers with more than three authors are cited as the initials of the first three authors and a +.
+\usepackage[backend=biber,giveninits=true,terseinits=true,style=alphabetic,minbibnames=4,maxbibnames=6,minalphanames=3,maxalphanames=3]{biblatex}
 % https://ctan.mirror.garr.it/mirrors/ctan/macros/latex-dev/base/ltfilehook-doc.pdf
 \addbibresource{\CurrentFilePath/../refs/eprint.bib}
 \addbibresource{\CurrentFilePath/../refs/other.bib}

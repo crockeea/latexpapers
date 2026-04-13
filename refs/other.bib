@@ -98,15 +98,136 @@ series = {ICML'23}
 	doi = {10.21203/rs.3.rs-584746/v1}
 }
 
-@inproceedings{10.5555/3618408.3619194,
-	author = {Lee, Seewoo and Lee, Garam and Kim, Jung Woo and Shin, Junbum and Lee, Mun-Kyu},
-	title = {HETAL: efficient privacy-preserving transfer learning with homomorphic encryption},
-	year = {2023},
-	publisher = {JMLR.org},
-	abstract = {Transfer learning is a de facto standard method for efficiently training machine learning models for data-scarce problems by adding and fine-tuning new classification layers to a model pretrained on large datasets. Although numerous previous studies proposed to use homomorphic encryption to resolve the data privacy issue in transfer learning in the machine learning as a service setting, most of them only focused on encrypted inference. In this study, we present HETAL, an efficient Homomorphic Encryption based Transfer Learning algorithm, that protects the client's privacy in training tasks by encrypting the client data using the CKKS homomorphic encryption scheme. HETAL is the first practical scheme that strictly provides encrypted training, adopting validation-based early stopping and achieving the accuracy of nonencrypted training. We propose an efficient encrypted matrix multiplication algorithm, which is 1.8 to 323 times faster than prior methods, and a highly precise softmax approximation algorithm with increased coverage. The experimental results for five well-known benchmark datasets show total training times of 567-3442 seconds, which is less than an hour.},
-	booktitle = {Proceedings of the 40th International Conference on Machine Learning},
-	articleno = {786},
-	numpages = {26},
-	location = {Honolulu, Hawaii, USA},
-	series = {ICML'23}
+@misc{ding2024nttsuitenumbertheoretictransform,
+	title={NTTSuite: Number Theoretic Transform Benchmarks for Accelerating Encrypted Computation}, 
+	author={Juran Ding and Yuanzhe Liu and Lingbin Sun and Brandon Reagen},
+	year={2024},
+	eprint={2405.11353},
+	archivePrefix={arXiv},
+	primaryClass={cs.CR},
+	url={https://arxiv.org/abs/2405.11353}, 
+}
+
+@article{10.1145/321450.321457,
+	author = {Pease, Marshall C.},
+	title = {An Adaptation of the Fast Fourier Transform for Parallel Processing},
+	year = {1968},
+	issue_date = {April 1968},
+	publisher = {Association for Computing Machinery},
+	address = {New York, NY, USA},
+	volume = {15},
+	number = {2},
+	issn = {0004-5411},
+	url = {https://doi.org/10.1145/321450.321457},
+	doi = {10.1145/321450.321457},
+	abstract = {A modified version of the Fast Fourier Transform is developed and described. This version is well adapted for use in a special-purpose computer designed for the purpose. It is shown that only three operators are needed. One operator replaces successive pairs of data points by their sums and differences. The second operator performs a fixed permutation which is an ideal shuffle of the data. The third operator permits the multiplication of a selected subset of the data by a common complex multiplier.If, as seems reasonable, the slowest operation is the complex multiplications required, then, for reasonably sized date sets—e.g. 512 complex numbers—parallelization by the method developed should allow an increase of speed over the serial use of the Fast Fourier Transform by about two orders of magnitude.It is suggested that a machine to realize the speed improvement indicated is quite feasible.The analysis is based on the use of the Kronecker product of matrices. It is suggested that this form is of general use in the development and classification of various modifications and extensions of the algorithm.},
+	journal = {J. ACM},
+	month = apr,
+	pages = {252–264},
+	numpages = {13}
+}
+
+@misc{razmkhah2025scentthardwareacceleratornumber,
+	title={SCE-NTT: A Hardware Accelerator for Number Theoretic Transform Using Superconductor Electronics}, 
+	author={Sasan Razmkhah and Mingye Li and Zeming Cheng and Robert S. Aviles and Kyle Jackman and Joey Delport and Lieze Schindler and Wenhui Luo and Takuya Suzuki and Mehdi Kamal and Christopher L. Ayala and Coenrad J. Fourie and Nabuyuki Yoshikawa and Peter A. Beerel and Sandeep Gupta and Massoud Pedram},
+	year={2025},
+	eprint={2508.21265},
+	archivePrefix={arXiv},
+	primaryClass={cs.AR},
+	url={https://arxiv.org/abs/2508.21265}, 
+}
+
+@misc{jayashankar2025scalablemultigpuframeworkencrypted,
+	title={A Scalable Multi-GPU Framework for Encrypted Large-Model Inference}, 
+	author={Siddharth Jayashankar and Joshua Kim and Michael B. Sullivan and Wenting Zheng and Dimitrios Skarlatos},
+	year={2025},
+	eprint={2512.11269},
+	archivePrefix={arXiv},
+	primaryClass={cs.CR},
+	url={https://arxiv.org/abs/2512.11269}, 
+}
+
+@unknown{cachemir,
+	author = {Yu, Ye and Zhou, Yifan and Chen, Yi and Soto, Pedro and Xiong, Wenjie and Li, Meng},
+	year = {2026},
+	month = {02},
+	pages = {},
+	title = {Cachemir: Fully Homomorphic Encrypted Inference of Generative Large Language Model with KV Cache},
+	doi = {10.48550/arXiv.2602.11470}
+}
+
+@article{Zhang_2024,
+	title={SoK: Fully Homomorphic Encryption Accelerators},
+	volume={56},
+	ISSN={1557-7341},
+	url={http://dx.doi.org/10.1145/3676955},
+	DOI={10.1145/3676955},
+	number={12},
+	journal={ACM Computing Surveys},
+	publisher={Association for Computing Machinery (ACM)},
+	author={Zhang, Junxue and Cheng, Xiaodian and Yang, Liu and Hu, Jinbin and Liu, Ximeng and Chen, Kai},
+	year={2024},
+	month=oct, pages={1–32}
+}
+
+@misc{agullódomingo2025fideslibfullyfledgedopensourcefhe,
+	title={FIDESlib: A Fully-Fledged Open-Source FHE Library for Efficient CKKS on GPUs}, 
+	author={Carlos Agulló-Domingo and Óscar Vera-López and Seyda Guzelhan and Lohit Daksha and Aymane El Jerari and Kaustubh Shivdikar and Rashmi Agrawal and David Kaeli and Ajay Joshi and José L. Abellán},
+	year={2025},
+	eprint={2507.04775},
+	archivePrefix={arXiv},
+	primaryClass={cs.CR},
+	url={https://arxiv.org/abs/2507.04775}, 
+}
+
+@misc{li2025catgpuacceleratedfheframework,
+	title={CAT: A GPU-Accelerated FHE Framework with Its Application to High-Precision Private Dataset Query}, 
+	author={Qirui Li and Rui Zong},
+	year={2025},
+	eprint={2503.22227},
+	archivePrefix={arXiv},
+	primaryClass={cs.CR},
+	url={https://arxiv.org/abs/2503.22227}, 
+}
+
+@Article{math13233809,
+	AUTHOR = {Jin, Shutong and Cheung, Ray C. C.},
+	TITLE = {GPU Acceleration for KLSS Key Switching in Fully Homomorphic Encryption},
+	JOURNAL = {Mathematics},
+	VOLUME = {13},
+	YEAR = {2025},
+	NUMBER = {23},
+	ARTICLE-NUMBER = {3809},
+	URL = {https://www.mdpi.com/2227-7390/13/23/3809},
+	ISSN = {2227-7390},
+	DOI = {10.3390/math13233809}
+}
+
+@misc{choi2025theodosiandeepdivememoryhierarchycentric,
+	title={Theodosian: A Deep Dive into Memory-Hierarchy-Centric FHE Acceleration}, 
+	author={Wonseok Choi and Hyunah Yu and Jongmin Kim and Hyesung Ji and Jaiyoung Park and Jung Ho Ahn},
+	year={2025},
+	eprint={2512.18345},
+	archivePrefix={arXiv},
+	primaryClass={cs.CR},
+	url={https://arxiv.org/abs/2512.18345}, 
+}
+
+@misc{riazi2020heaxarchitecturecomputingencrypted,
+	title={HEAX: An Architecture for Computing on Encrypted Data}, 
+	author={M. Sadegh Riazi and Kim Laine and Blake Pelton and Wei Dai},
+	year={2020},
+	eprint={1909.09731},
+	archivePrefix={arXiv},
+	primaryClass={cs.CR},
+	url={https://arxiv.org/abs/1909.09731}, 
+}
+
+@misc{OpenFHE,
+	author = {Ahmad Al Badawi and Andreea Alexandru and Jack Bates and Flavio Bergamaschi and David Bruce Cousins and Saroja Erabelli and Nicholas Genise and Shai Halevi and Hamish Hunt and Andrey Kim and Yongwoo Lee and Zeyu Liu and Daniele Micciancio and Carlo Pascoe and Yuriy Polyakov and Ian Quah and Saraswathy R.V. and Kurt Rohloff and Jonathan Saylor and Dmitriy Suponitsky and Matthew Triplett and Vinod Vaikuntanathan and Vincent Zucca},
+	title = {{OpenFHE}: Open-Source Fully Homomorphic Encryption Library},
+	howpublished = {Cryptology ePrint Archive, Paper 2022/915},
+	year = {2022},
+	note = {\url{https://eprint.iacr.org/2022/915}},
+	url = {https://eprint.iacr.org/2022/915}
 }

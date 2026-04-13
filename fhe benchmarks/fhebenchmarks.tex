@@ -1,0 +1,626 @@
+\documentclass{article}
+
+\input{../headers/head}
+\usepackage{multirow}
+\usepackage{siunitx}
+\usepackage{subcaption}
+% comment out to remove fixmes
+%\fxsetup{status=draft}
+
+\DeclareMathOperator*{\us}{\mu\mathrm{s}}
+
+\begin{document}
+	\title{FHE Benchmarking}
+	\author{Eric Crockett}
+	\maketitle
+	
+	\section{Measuring Performance}
+	\label{sec:measurement}
+	Most FHE benchmarking tends to focus on higher-level operations (like bootstrapping) or applications (like LLM inference). Since we don't have either of those features implemented, we will focus on micro-benchmarks. This document summarizes recent published FHE micro-benchmarks for NTT and KeySwitch,  and compares them to Cornami benchmarks.
+	
+	\subsection{Terminology}
+	Let $f$ be the clock frequency in GHz. In this section ``element'' refers to a single 64-bit integer, while ``output'' refers to the full output of an FHE operation.
+	
+	On traditional architectures, latency typically refers to the time required for a function to consume its entire input and produce its entire output. In a streaming system, latency instead refers to the \emph{pipeline latency} $\pi$: the time between when the first input element enters a topology and when the first output element emerges. This metric is most meaningful for streaming architectures because downstream computations can begin as soon as the first output elements appear, allowing multiple stages to execute concurrently.
+	
+	The \emph{initiation interval} $\iota$ is the number of clock cycles between successive elements once the pipeline is full. In this document for Cornami fabric, $\iota\approx4$ clock cycles, but it can be slightly higher. We explain more when this appears later in the document.
+	
+	\emph{Throughput} is $f/\iota$, that is, the number of elements per second produced by a single copy of the topology.
+	
+	\emph{Aggregate throughput} is throughput multiplied by the number $P$ of topologies that fit on one chip. $\mathrm{throughput}_\mathrm{agg} = P\cdot f/\iota$.
+	
+	If the full output has $N$ elements, the \emph{completion interval} $\eta$ is the number of clock cycles to produce the full operation output ($N$ elements) after the pipeline is fully loaded. $\eta = N\cdot \iota$. \emph{Completion time} is the completion interval divided by the clock speed, i.e., the time it takes to produce a full operation output. 
+	
+	\emph{FHE-Op throughput} is the number of FHE operation outputs produced per second. For example, since an NTT output is $N$ elements,	
+	\[\mathrm{throughput}_{\mathsf{NTT}}=\frac{\mathrm{throughput}_{agg}}{N} = \frac{P\cdot f}{N\cdot \iota} = \frac{P\cdot f}{\eta}\]
+	
+	Generally, we will compare FHE-Op throughputs on Cornami vs other hardware platforms.
+	
+	One technicality: we use the term ``completion interval'' to mean the \emph{effective} completion interval between completed invocations. The difference is that the latter definition includes stalls between outputs, which is more useful for calculating real-world throughput. This generalization is one reason that completion times are slightly more than four cycles times the number of output elements. The generalization extends to the other terms above as well; this will be implicit in the rest of the document.
+	
+	\subsection{Comparing Hardware}
+	Comparing performance numbers across hardware types is challenging. For example, many FHE benchmarks on CPUs, GPUs, and FPGAs report latency and make no mention of throughput. Given an op latency $\ell$ seconds, we can compute a \emph{lower bound} on op throughput of $\frac{1}{\ell}$ ops/s, but it's possible that throughput on these devices is actually much larger because, e.g, a single FPGA can do multiple target operations in parallel, and CPU numbers are reported for a single core. For example, on GPUs recent work has resulted in substantially higher NTT throughput than $\frac{1}{\ell}$ when batching, where $\ell$ is the single-NTT latency.
+	
+	Even under the optimistic assumption that competitors' op-throughput is exactly $\frac{1}{\ell}$ ops/s, it's still not clear how to compare directly. 
+For example, one paper reported a latency of $8.66\us$ for an $N=2^{16}$ NTT on an RTX4090, corresponding to a op-throughput of $\approx 115K$ NTT/s. Our single-chip NTT throughput is 11,165 NTT/s, meaning we would need 11 chips to match the throughput of an RTX4090. Is that good? Bad? How do we know?
+	
+	There are many ways we might normalize to get closer to an `apples-to-apples'' hardware comparison:
+	\begin{itemize}
+		\item Performance per watt
+		\item Performance per dollar
+		\item Performance per area
+		\item Performance per core
+	\end{itemize}
+	
+	Ideally, we measure all of these. We explore these normalizations in more detail below.
+	
+	\subsubsection{Power Usage}
+	\label{sec:powerusage}
+	The basic idea is to compute op-throughput per watt. However, there are caveats that may prevent this from being a meaningful metric:
+	\begin{itemize}
+		\item Cornami only has measured power usage for a few specific workloads (PBS, LLM). We have two options here: either use an estimated power usage (85W for PBS, 78W for LLM) or make tedious measurements for each of the benchmarks. Given current time constraints, I estimated 80W/chip based on the PBS and LLM results. This could be above or below actual power consumption for the FHE operations that we benchmark.
+		\item Regardless of how we measure our own power consumption, we also have no way to measure power consumption of the competitor. We can get an upper bound using ``Total Graphics Power'' (TGP), but this almost certainly makes us look relatively better than we really are. For instance, an RTX4090 has a total graphics power (TGP) of 450W, while A100's TGP is 250-400 depending on whether it is the PCIe version or the SGX version (papers typically don't specify). At some point, we will use so many upper/lower bounds and approximations that the comparison becomes meaningless. Since we don't have any other choice, we choose to use TGP as an upper-bound on power consumption.
+	\end{itemize}
+	\textbf{With accurate power measurements for both Cornami and the GPU}, this normalization would provide the best ``apples-to-apples'' comparison.
+	
+	\subsubsection{Hardware Fixed Cost}
+	This is probably the easiest thing to measure: for the NTT example above, we compute the fixed cost of 40 chips and compare that to the cost of one GPU. For reference, we sell Cornami chips for \$9,375 (based on \$300K for an MX64 server). Retail prices for various GPUs below:
+	\begin{itemize}
+		\item RTX3060ti: \$670
+		\item RTX4060ti: \$500
+		\item RTX4090: \$3,400
+	\end{itemize}
+	I calculate op-throughput per dollar. For Cornami, I calculate the cost of actual chips used; e.g., 17 chips costs $\frac{17}{32}\cdot \mathrm{\$300K}$.
+	
+	\subsubsection{Rack Space}
+	This is easy to measure using PCIe slots as a proxy for rack space. I assume 1 PCIe slot per GPU and 1 PCIe slot per Cornami card (4 chips/card), and calculate op-throughput per PCIe slot.
+	
+	\subsubsection{Core Count}
+	One Cornami chip has 2K cores, while GPUs typically have more. We can normalize only for cores by computing op-throughput/core, or for number of cores \emph{and} clock frequency by computing op-throughput/(cores$\cdot$GHz). Here is the data for a few different GPUs used in the external benchmarks:
+	\begin{table}[H]
+		\centering
+		\renewcommand{\arraystretch}{1.5}
+		\caption{Performance per core based on external NTT benchmarks.}
+		\label{tbl:nttcorecount}
+		\begin{tabular}{ | c | r | S[table-format=1.2] | }
+			\hline
+			GPU & {CUDA Cores} & {Freq (GHz)} \\
+			\hline
+			RTX3060ti & 4,864  & 1.41        \\
+			RTX4060ti & 4,352  & 2.31        \\
+			RTX4090   & 16,384 & 2.24        \\
+			A100      & 6,912  & {0.765-1.1} \\
+			\hline
+		\end{tabular}
+	\end{table}
+	
+	We note that comparing ``cores'' is not really meaningful due to differences in datapath width, control overhead, memory systems, and scheduling. This normalization therefore does not result in an ``apples to apples'' comparison.
+	
+	\subsection{GPU Benchmarking}
+	\label{sec:gpu-bench}
+	CUDA programs are divided into \emph{kernels}. Launching the kernel can be divided into three steps:
+	\begin{itemize}
+		\item Host-side launch overhead. This usually takes a few microseconds, and is typically \emph{not} included in benchmarks measured with CUDA events.
+		\item Device dispatch overhead. This is essentially ``scheduling'', and has an overhead of sub-microsecond to a few microseconds. This \emph{is} included in CUDA event benchmarks.
+		\item Kernel execution time. This is where the real work happens, and it typically dominates the device dispatch overhead, except when running very small kernels.
+	\end{itemize}
+	
+	CUDA enables precise benchmarking with CUDA events. GPU benchmarks typically assume that all data is already on the device, and does not include host$\leftrightarrow$device communication time.	
+	
+	\subsection{Cornami Benchmarking}
+	\label{sec:cornami-bench}
+	Our engineers measure \emph{on-device completion time}: after filling the pipeline, they record the clock cycle on which every output is produced, and then compute the average gap between outputs. This is the average time to produce consecutive outputs. For all of the benchmarks in this document, it must be at least 4.0 clock cycles, since that's the how fast an FC can process a 64-bit integer [multiplication]. However, it may be longer than this, e.g., due to pipeline stalls.
+	
+	On-device completion time is the closest analog of GPU latency: it does not include data transfer times, configuration time, etc; it is just a measure of how long it takes to compute an output.
+	
+	\section{NTT}
+	NTT refers to a special discrete Fourier transform (DFT) used in homomorphic encryption. It is a low-level \emph{ring operation} with complexity $\mathcal{O}(N\log{N})$ in the ring dimension $N$, making it the most expensive ring operation and a reasonable micro-benchmark. We note a few salient properties of NTT:
+	\begin{itemize}
+		\item Operations are over the integers mod a prime
+		\item Our implementation uses 64-bit integers
+		\item NTT technically refers to a linear operator (a matrix). Efficient \emph{implementations} of this matrix correspond to the matrix with the rows permuted. We will refer to this ``tweaked'' NTT as NTT'. Some implementations choose to implement the full NTT by composing NTT' with an operation called \emph{bit-reversal}. In most FHE implementations, bit-reversal is not necessary. As a result, Cornami's NTT implementation is really an NTT' implementation. However, some benchmarks include the bit-reversal step, making them not quite apples-to-apples. Specifically, their numbers will look worse compared to our numbers because they are doing extra work.
+		\item NTT and its inverse are essentially identical; we will focus on NTT benchmarks.
+		\item Different implementations implement modular arithmetic in different ways, e.g. Barrett vs Montgomery reduction. We assume that the chosen approach is optimal for the hardware being benchmarked, so we consider two implementations to be apples-to-apples even if they use different approaches.
+		\item Some implementations modify inputs in-place, while others do not. See in particular OpenFHE, which reports (similar) numbers for both options.
+	\end{itemize}
+	
+	\subsection{Cornami Details}
+	The NTT algorithm takes $N$ 64-bit integer coefficients as input and outputs $N$ 64-bit integer coefficients. Due to using one input/output stream, we get one 64-bit integer at a time and produce one 64-bit integer at a time. The measured [average] initiation interval is 4.086 clock cycles, so the completion time is $\frac{4.086\cdot N}{1\mathrm{GHz}}$, excluding configuration time and host/device transfer. For $N=2^{16}$, this is $267.8\us$.
+	
+	Throughput is a function of latency and how many topologies we can fit onto a chip. Our NTT algorithm is the Cooley-Tukey decomposition, which requires accessing stream elements at fixed offsets, e.g., index 0 and index $N/2$. This requires buffering $N/2$ elements into FIFOs on our architecture, meaning that a large percentage of cores in the NTT topology (for large $N$) are dedicated to FIFO. For instance, $49.4\%$ of cores in the $N=2^{16}$ NTT topology are FIFO cores used for buffering data. Our topology uses 506 FC arranged in a 20x28 grid. Since this takes up more than 1/4 of the chip, we can fit three $N=2^{16}$ NTTs per chip. If we could find a way to pack this topology so that it uses 512 FC of space, we could fit four topologies per chip, thereby increasing throughput by 33\%.
+	
+	In the future, one way to significantly decrease the space used by the NTT topology is to increase the SRAM on each core. If we could buffer $N/2$ elements without using FIFO cores, the NTT topology would use roughly half of the cores it does today, meaning we could place $\approx$2x more NTT toplogies per chip, doubling our throughput.
+	
+	\subsection{External Benchmarks}
+	
+	\subsubsection{HEXL}
+	HEXL~\cite{cryptoeprint:2021/420} is an Intel library that uses the AVX512 instruction set to provide CPU-accelerated FHE primitives. Their implementation uses Barrett reduction and an optimization due to Harvey~\cite{Harvey_2014}. This optimization is relevant to our implementation, but it is not currently being used. It's not clear if it would actually be advantageous for us.
+	Hardware: 3rd Gen Intel Xeon 8360Y 2.4GHz, 64GB RAM, 72 cores. Benchmarks are run single-threaded on a single core.
+	
+	\subsubsection{NTTSuite}
+	NTTSuite~\cite{ding2024nttsuitenumbertheoretictransform} is a benchmarking suite for NTT. It includes seven reference NTT algorithms. Though the suite is designed to run on CPU, GPU, and FPGA, performance numbers are only reported for the xilinx v7690t1761-2 FPGA. It seems like this implementation \emph{does} include bit-reversal, and the modular arithmetic method is not documented. Benchmark times do not include data transfer in either direction. Confusingly, the FPGA benchmark results ran the FPGA at different frequencies for different algorithms; see the paper for details. Note that this paper found that the Pease algorithm~\cite{10.1145/321450.321457} (with their own optimization) was optimal for FPGAs.
+	
+	\subsubsection{HEAX}
+	HEAX~\cite{riazi2020heaxarchitecturecomputingencrypted} uses Intel FPGAs (Arria 10 at 275 MHz and Stratix 10 at 300 MHz) with reduced-bit-width moduli (52 bits), so in some sense this is cheating. It does not include bit-reversal. The paper reports core usage as ``10x16-cores'' for the Stratix FPGA. The Arria FPGA may use 8 cores for NTT.
+	
+	\subsubsection{OpenFHE}
+	Published benchmarks on Github~\cite{OpenFHE}. Benchmarks run on my laptop in WSL.
+	
+	\subsubsection{Phantom}
+	Phantom~\cite{cryptoeprint:2023/049} benchmarks NTT and KeySwitch on a PCIe A100 GPU. This paper reports the average of 100 runs of single executions of NTT.
+	
+	\subsubsection{FIDESlib}
+	FIDESlib~\cite{agullódomingo2025fideslibfullyfledgedopensourcefhe} benchmarks several different HE operations on GPUs and compares the results to Phantom. Note that these benchmarks are from two years after the original Phantom paper on new hardware, which I think explains the \emph{extreme} speedup (10x) relative to the Phantom paper.
+	
+	This paper does not show latency for a single NTT, it only shows ``amortized latency'' for multi-limb NTTs, which we consider to be ``batched NTTs''. We convert this to NTT throughput by extracting amortized latencies from Figure 4, and inverting them to get NTT throughput.
+	
+	\subsubsection{ÖS23}
+	\cite{cryptoeprint:2023/1410} implements two different NTT algorithms on GPUs. Note that it uses a ``goldilocks'' prime, whereas our implementation works for any prime. This work measures NTT latency for various batch sizes, from 1 to 128, which allows us to compare both latency and throughput. Unlike FIDESlib, this paper reports raw (not amortized) latency for various batch sizes in tables XI and XII, so NTT throughput is computed as $\frac{batch size}{raw latency}$. We note that the goal of this paper is to get the fastest implementation of NTT on GPU, as opposed to FIDESlib (a paper written two years later), whose goal is to have a complete CKKS GPU library. That explains why this paper outperforms FIDESlib.
+	
+	Since this paper has the best NTT benchmarks, we explore exactly what it measures. As noted in~\cref{sec:gpu-bench}, latency does \emph{not} include host$\rightarrow$GPU data transfer, nor does it include host-side kernel launch. It does \emph{does} include the device-side kernel launch time, and it assumes that the data is already present in GPU memory. 
+	
+	\subsubsection{Non-benchmarks}
+	\begin{itemize}
+		\item Cerium~\cite{jayashankar2025scalablemultigpuframeworkencrypted} does not provide NTT benchmarks.
+		
+		\item Cachemir~\cite{cachemir} does not provide NTT benchmarks.
+		
+		\item \cite{razmkhah2025scentthardwareacceleratornumber} uses a custom hardware accelerator based on superconductive single flux quantum logic and memory, but only benchmarks $N=128$ on 32-bit coefficients and extrapolates results to $N=2^{14}$.
+		
+		\item \cite{Zhang_2024} is a survey of many different NTT accelerators, but it does not provide fine-grained benchmark results (only graphs with logarithmic scales), so the results are not useful for comparison.
+		
+		\item \cite{li2025catgpuacceleratedfheframework} doesn't benchmark NTT.
+		
+		\item Theodosian \cite{choi2025theodosiandeepdivememoryhierarchycentric} only reports benchmarks on bootstrapping and encrypted ML applications.
+	\end{itemize}	
+	
+	\subsection{Raw NTT Benchmarks}
+	\cref{tab:ntt-benchmarks-latency} summarizes the latency results for NTT. Some papers report latency results for single executions of NTT, while others report batched or amortized latencies. As a result, we divide the external benchmarks into two tables. \cref{tab:ntt-benchmarks-latency} shows \emph{single-execution latency}, while \cref{tab:ntt-benchmarks-throughput} shows NTT throughput for different batch sizes. \textbf{Note that GPU throughputs in \cref{tab:ntt-benchmarks-throughput} are much higher than the corresponding latencies in \cref{tab:ntt-benchmarks-latency}, since they benefit from increased throughput with higher batch sizes.}
+	
+	\begin{table}[h]
+		\centering
+		\caption{NTT Benchmark single-execution time across varying ring dimensions}
+		\label{tab:ntt-benchmarks-latency}
+		{
+			\renewcommand{\arraystretch}{1.5}
+			\begin{tabular}{ | w{l}{5.0cm} | S[table-format=1.2] | S[table-format=2.2] | S[table-format=3.2] | S[table-format=3.2] | } 
+				\hline 			
+				\multirow{2}{*}{\textbf{NTT Benchmark}} & \multicolumn{4}{c|}{{Time ($\us$)}} \\ \cline{2-5}
+				& {$2^{10}$=1K} & {$2^{12}$=4K} & {$2^{14}$=16K} & {$2^{16}$=64K} \\
+				\hline
+				\textbf{Cornami} & {---} & {16.8} & {67.1} & {267.8} \\
+				\hline
+				\textbf{HEXL}\hfill(CPU, 2021) & & & & \\
+				\hfill Native & 9.08 & 38.8 & 177 & {---} \\
+				\hfill NFLib  & 4.82 & 21.1 & 97.8 & {---} \\
+				\hfill NTL    & 2.44 & 8.48 & 40.2 & {---} \\
+				\hfill AVX    & 1.25 & 5.81 & 33.1 & {---} \\
+				\hline
+				\textbf{NTTSuite}\hfill(FPGA, 2024) & & & & \\
+				\hfill 4 cores & 7.18 & 31.93 & 146.96 & 669.30 \\
+				\hfill 16 cores & 2.27 & 8.60  & 37.50 & {---} \\
+				\hline
+				\textbf{HEAX}\hfill(FPGA/GPU, 2019) & & & & \\
+				\hfill Arria & {---} & 11.17 & {---} & {---} \\
+				\hfill Stratix & {---} & 5.12 & 23.89 & {---} \\
+				\hfill Tesla-K80 & {---} & 39.00 & 193.01 & {---} \\
+				\hfill Tesla-P100 & {---} & 36.00 & 87.00 & {---} \\
+				\hline
+				\textbf{OpenFHE}\hfill(CPU, 2026) & 9.54 & 44.6 & 209 & 950 \\
+				\hline
+				\textbf{Phantom}\hfill(Tesla-A100, 2023) & {---} & 18.87 & 20.64 & 22.82 \\
+				\hline
+				\textbf{ÖS23}\hfill(GPU, 2023) & & & & \\
+				\hfill RTX3060ti & & 7.92  & 8.95  & 14.33 \\
+				\hfill A100      & & 12.57 & 12.97 & 15.93 \\
+				\hfill RTX4090   & & 7.29  & 7.80  & 8.66 \\
+				\hline
+			\end{tabular}
+		}
+	\end{table}
+	
+	\begin{table}[h]
+		\centering
+		\caption{NTT Benchmark throughput in \emph{thousands of NTTs/s} for $N=2^{16}$}
+		\label{tab:ntt-benchmarks-throughput}
+		{
+			\renewcommand{\arraystretch}{1.5}
+			\begin{tabular}{ | w{l}{5.0cm} | c | c | c | c | c | c | } 
+				\hline 			
+				\multirow{2}{*}{\textbf{NTT Benchmark}} & \multicolumn{6}{c|}{{Batch Size}} \\ \cline{2-7}
+				& 1 & 4 & 16 & 32 & 64 & 128 \\
+				\hline
+				\textbf{Cornami (single chip)} & 3.7 & 11.2 & 11.2 & 11.2 & 11.2 & 11.2 \\
+				\hline
+				\textbf{ÖS23}\hfill(GPU, 2023, batch=128) &&&&&& \\
+				\hfill RTX3060ti & 70  & 119 & 142 & 146 & 157 & 159 \\
+				\hfill A100      & 63  & 172 & 286 & 322 & 339 & 362 \\
+				\hfill RTX4090   & 115 & 321 & 560 & 644 & 703 & 692 \\
+				\hline
+				\textbf{FIDESlib}\hfill(GPU, 2025) & & & &&& \\
+				\hfill Phantom RTX4060ti  & {---} & {---} & 225 & 132 & 104 & 93 \\
+				\hfill FIDESlib RTX4060ti & {---} & {---} & 172 & 164 & 147 & 149 \\
+				\hfill Phantom RTX4090    & {---} & {---} & 518 & 658 & 472 & 372 \\
+				\hfill FIDESlib RTX4090   & {---} & {---} & 431 & 518 & 505 & 457 \\
+				\hline
+			\end{tabular}
+		}
+	\end{table}
+
+	
+	
+	\subsection{Relative NTT Benchmarks}
+	We present \emph{relative} results for ring dimension $N=2^{16}$.
+	
+\begin{table}[H]
+	\centering
+	\renewcommand{\arraystretch}{1.5}
+	\caption{Relative Normalized Benchmarks for $N=2^{16}$ NTT. Numbers are ``times worse than Cornami''.}
+	\begin{subtable}[b]{0.45\textwidth}
+		\centering
+		\caption{Relative latency. This is \emph{not} normalized for core usage.}
+		\begin{tabular}{ | c | c | }
+			\hline
+			GPU & Relative Latency \\
+			\hline
+			\textbf{RTX3060ti} & 18.8x \\
+			\textbf{A100} & 16.9x \\
+			\textbf{RTX4090} & 31x\\
+			\hline
+		\end{tabular}
+	\end{subtable}
+	\hfill % Adds spacing between the two tables
+	\begin{subtable}[b]{0.45\textwidth}
+		\centering
+		\caption{Relative power as measured by (GPU Throughput/W) / (Cornami Throughput/W).}
+		\begin{tabular}{ | c | c | }
+			\hline
+			GPU & Relative Power \\
+			\hline
+			\textbf{RTX3060ti} & 5.7x \\
+			\textbf{RTX4060ti} & 10.1x \\
+			\textbf{A100} & 6.5x-10.3x \\
+			\textbf{RTX4090} & 11x \\
+			\hline
+		\end{tabular}
+	\end{subtable}
+	
+	\vspace{1.5em}
+	
+	\begin{subtable}[b]{0.45\textwidth}
+		\centering
+		\caption{Relative cost as measured by (GPU Throughput/\$) / (Cornami Throughput/\$).}
+		\begin{tabular}{ | c | c | }
+			\hline
+			GPU & Relative Cost \\
+			\hline
+			\textbf{RTX3060ti} & 200x \\
+			\textbf{RTX4060ti} & 377x \\
+			\textbf{RTX4090} & 172x \\
+			\hline
+		\end{tabular}
+	\end{subtable}
+	\hfill % Adds spacing between the two tables
+	\begin{subtable}[b]{0.45\textwidth}
+		\centering
+		\caption{Relative space as measured by (GPU Throughput/PCIe slot) / (Cornami Throughput/PCIe slot).}
+		\begin{tabular}{ | c | c | }
+			\hline
+			GPU & Relative Cost \\
+			\hline
+			\textbf{RTX3060ti} & 3.6 \\
+			\textbf{RTX4060ti} & 5.0x \\
+			\textbf{A100} & 8.1x \\
+			\textbf{RTX4090} & 15.5x \\
+			\hline
+		\end{tabular}
+	\end{subtable}
+	\vspace{1.5em}
+	
+	\begin{subtable}[b]{0.45\textwidth}
+		\centering
+		\caption{Relative performance as measured by (GPU Throughput/CUDA core) / (Cornami Throughput/FC).}
+		\begin{tabular}{ | c | c | }
+			\hline
+			GPU & Relative Cores \\
+			\hline
+			\textbf{RTX3060ti} & 6.0x \\
+			\textbf{RTX4060ti} & 5.0x \\
+			\textbf{A100} & 9.6x \\
+			\textbf{RTX4090} & 7.8x \\
+			\hline
+		\end{tabular}
+	\end{subtable}
+	\hfill % Adds spacing between the two tables	
+	\begin{subtable}[b]{0.45\textwidth}
+		\centering
+		\caption{Relative space as measured by (GPU Throughput/(CUDA core$\cdot$GHz)) / (Cornami Throughput/(FC$\cdot$GHz)).}
+		\begin{tabular}{ | c | c | }
+			\hline
+			GPU & Relative Cores$\cdot$GHz \\
+			\hline
+			\textbf{RTX3060ti} & 3.6-4.3x \\
+			\textbf{RTX4060ti} & 3.7-4.1x \\
+			\textbf{A100} & 8.7-12.5x \\
+			\textbf{RTX4090} & 3.5x \\
+			\hline
+		\end{tabular}
+	\end{subtable}
+\end{table}
+
+\subsection{Analysis}
+By the most-favorable metric, an RTX4090 still out-performs our current design by a factor of 3.5.
+
+With our current design of single-input/single-output, our completion time is fixed and completely clear: $267.8\us = 4.086ns \cdot 2^{16} $. The completion time is therefore largely determined by the \emph{polynomial dimension}. Our throughput is also well-understood: we can only fit three NTT topologies per chip, largely due to FIFOs. 
+
+By contrast, GPUs keep the entire polynomial in memory and take advantage of cheap random access, which is not available to us. They process many butterflies in parallel (whereas we process them sequentially).
+
+When we account for cores and clock frequency, the GPU advantage diminishes to 3.5x. This remaining gap can be explained by some architectural advantages the GPU has:
+\begin{itemize}
+	\item The whole polynomial is kept in memory
+	\item Butterflies are performed in parallel
+	\item GPUs have random access to memory, which is important for this algorithm
+\end{itemize}
+
+As for our hardware, the bottleneck is largely due to serialization rather than algorithmic or arithmetic weaknesses. The best improvements would come from resolving the single-stream constraint and/or reducing the number of FIFOs to increase throughput.
+
+A generous way to interpret these results is that although the RTX 4090 achieves 31x lower latency for a single $N=2^{16}$ NTT, about 10x of this is attributable to the RTXs larger hardware budget and high clock frequency. After a rough normalization by those factors, the batched NTT-throughput gap shrinks to just 3.5x, which is within a small constant factor of highly-optimized commercial hardware.
+	
+	\section{KeySwitch}
+	KeySwitch is a ``mid-tier'' CKKS API: it's composed of many ring operations, but it's also not a top-level/external-facing API. As a result, there are relatively few benchmarking results. Some papers benchmark ``relinearization'', which is keyswitch plus two additions. Since the additions are negligible compared to the rest of the keyswitch, we will treat benchmarks of relinearization as benchmarks of keyswitching. 
+	
+	Keyswitch takes a single RNS polynomial with $L$ moduli and produces two polynomials, each with $L$ moduli. Inside key-switching, we temporarily increase the number of moduli to $L+k$. Thus keyswitch performance is determined by the ring dimension $N$, the number of input moduli $L$ and the number of ``key-switch moduli'' $k$. The primary challenge in comparing keyswitch benchmarks is parameterization: it's only meaningful to compare when using the same parameters.
+	
+	Different combinations of $L, k$ for the same $N$ result in different performance characteristics: small $k$ gives better FHE utility (more levels, less-frequent bootstrapping) but slower keyswitches. Larger $k$ gives lower FHE utility but faster keyswitches.
+	
+	\subsection{Cornami Implementation}
+	We only have actual measurements on our hardware for two specific $N,L,k$ combinations: $(2^{15}, 18, 2)$ and $(2^{16}, 37, 4)$. These parameters come from DESILO's FHE library, but do not appear in any other benchmark papers. As a result, all numbers for Cornami in this section are projected based on our results. Specifically, we \emph{measured} an iteration time of 4.528ns per output for keyswitching with DESILO Gold $(2^{16}, 37, 4)$ parameters using the strategy described in~\cref{sec:cornami-bench}. The output has $2^{16}\cdot 37$ integers, but due to pipeline stalls, completion time is the same as if we output $2^{16}\cdot (37+4)$ integers. This gives us a way to project completion time for other parameters:
+	\[\eta_{N,L,k} = 4.528 \cdot \frac{37}{41} \cdot N\cdot \frac{L+k}{L} \cdot L = 4.086\cdot N\cdot (L+k)\]
+	
+	We are also estimating the number of chips as $\left\lceil\left\lceil\frac{L}{k}\right\rceil / 2\right\rceil + 1$. This estimate is used in the core-based normalizations. It's possible that this formula \emph{over}-estimates the number of chips required for small parameter sets. However, we only report normalized results for $N=2^{16}$, where we have high confidence in the chip estimate.
+	
+	\subsection{External Benchmarks}
+	\subsubsection{CAT}
+	CAT~\cite{li2025catgpuacceleratedfheframework} is a GPU-accelerated FHE framework. It provides relinearization benchmarks on CPU and two different GPUs.
+	
+	\subsubsection{HEAX}
+	HEAX~\cite{riazi2020heaxarchitecturecomputingencrypted} provides benchmarks for keyswitch on two different FPGAs.
+	
+	\subsubsection{JC25}
+	\cite{math13233809} provides benchmarks for a CUDA-optimized implementation of keyswitching for 21 different parameter sets. We only show results for a subset of these. Note that this approach uses the ``double decomposition'' trick presented \href{https://sviral-my.sharepoint.com/:p:/g/personal/ecrockett_cornami_com/IQB6mrycfbYvQJwYHyPyjougASPghF4L40EoaYXmsmJH9Ok?e=1bzd6p}{here}. Cornami engineers felt this would not benefit our hardware.
+	
+	\subsubsection{Non-benchmarks}
+	HEonGPU~\cite{cryptoeprint:2024/1543} is a follow-up of~\cite{cryptoeprint:2023/1410} that includes a full CKKS library on GPU. The implementation includes three variations on the key-switching algorithm; I have not researched the differences between these. Results are benchmarked on an RTX4090. The paper is not clear about the RNS structure (i.e., the breakdown of $L$ and $k$), so I'm not reporting benchmarks here.
+	
+	\subsection{Raw KeySwitch Benchmarks}
+	This section shows the raw keyswitch latency benchmarks for various hardware platforms. 
+	Unlike NTT, keyswitch benchmarks are typically not batched since keyswitch is a much larger operation than NTT. 
+	Each table shows results for a different keyswitch parameterization. Note that Cornami latencies and chip counts (in parentheses after the latency) are projections.
+	
+	\begin{table}[H]
+		\centering
+		\renewcommand{\arraystretch}{1.5}
+		\caption{KeySwitch Benchmark Comparison}
+		
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{$N=2^{12}, L=2, k=1$}
+			\begin{tabular}{ | w{l}{4.0cm} | S[table-format=2.2] | }
+				\hline
+				\textbf{KeySwitch Benchmark} & {Time ($\us$)} \\
+				\hline
+				\textbf{Cornami} & {50.2 (2)} \\
+				\hline
+				\textbf{HEAX} & \\
+				\hfill Arria10 & 22.34 \\
+				\hfill Stratix10 & 10.24 \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+		\hfill % Adds spacing between the two tables
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{$N=2^{13}, L=4, k=1$}
+			\begin{tabular}{ | w{l}{4.0cm} | S[table-format=2.2] | }
+				\hline
+				\textbf{KeySwitch Benchmark} & {Time ($\us$)} \\
+				\hline
+				\textbf{Cornami} & {167.4 (3)} \\
+				\hline
+				\textbf{HEAX}\hfill(Stratix10, 2019) & 44.37 \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+		
+		\vspace{1.5em}
+		
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{$N=2^{14}, L=8, k=1$}
+			\begin{tabular}{ | w{l}{4.0cm} | S[table-format=3.1] | }
+				\hline
+				\textbf{KeySwitch Benchmark} & {Time ($\us$)} \\
+				\hline
+				\textbf{Cornami} & {602.5 (5)} \\
+				\hline
+				\textbf{HEAX}\hfill(Stratix10, 2019) & 382.3 \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+		\hfill % Adds spacing between the two tables
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{$N=2^{15}, L=16, k=1$}
+			\begin{tabular}{ | w{l}{4.0cm} | S[table-format=3.2] | }
+				\hline
+				\textbf{KeySwitch Benchmark} & {Time ($ms$)} \\
+				\hline
+				\textbf{Cornami} & {2.28 (9)} \\
+				\hline
+				\textbf{CAT}\hfill(CPU/GPU, 2025) & \\
+				\hfill AMD EPYC 9654 & 175.52 \\
+				\hfill NVIDIA 3090 & 3.61 \\
+				\hfill NVIDIA 4090 & 2.62 \\
+				\hline
+				\textbf{JC25}\hfill(GPU, 2025) & \\
+				\hfill A100 & 0.95 \\
+				\hfill RTX4090 & 0.67 \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+	\end{table}
+	
+	\begin{table}[H]
+		\centering
+		\renewcommand{\arraystretch}{1.5}
+		\caption{Parameters: $N=2^{16}$ with various $L$/$k$.}
+		\label{tbl:keyswitchbench}
+		\begin{tabular}{ | c | c | S[table-format=3.2] | S[table-format=3.2] | c | }
+			\hline
+			$L$ & $k$ & {JC25 A100 ($ms$)} & {JC25 RTX4090 ($ms$)} & Cornami ($ms$, projected) \\
+			\hline
+			31 & 1 & 3.62 & 3.21 & 8.57 (17) \\
+			30 & 2 & 3.17 & 2.73 & 8.57 (9)  \\
+			29 & 3 & 2.53 & 2.02 & 8.57 (6)  \\
+			28 & 4 & 2.30 & 1.72 & 8.57 (5)  \\
+			\hline
+		\end{tabular}
+	\end{table}
+	
+	\subsection{Relative KeySwitch Benchmarks}
+	This section uses the raw numbers in the previous section to present \emph{normalized} benchmarks per~\cref{sec:measurement}.
+	
+	\begin{table}[H]
+		\centering
+		\renewcommand{\arraystretch}{1.5}
+		\caption{Relative Normalized Benchmarks various keyswitch parameters. Numbers are ``times worse than Cornami''.}
+		\label{tab:keyswitch-normalized}
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{Relative latency. This is \emph{not} normalized for core usage.}
+			\begin{tabular}{ | c | c | c | }
+				\hline
+				KeySwitch & \multicolumn{2}{c|}{Relative Latency} \\ \cline{2-3}
+				Parameters & A100 & RTX4090 \\
+				\hline
+				$N=2^{15}$, $L=16$, $k=1$ & 2.4x & 3.4x \\
+				$N=2^{16}$, $L=31$, $k=1$ & 2.4x & 2.7x \\
+				$N=2^{16}$, $L=30$, $k=2$ & 2.7x & 3.1x \\
+				$N=2^{16}$, $L=29$, $k=3$ & 3.4x & 4.2x \\
+				$N=2^{16}$, $L=28$, $k=4$ & 3.7x & 5.0x \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+		\hfill % Adds spacing between the two tables
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{Relative power as measured by (GPU Throughput/W) / (Cornami Throughput/W).}
+			\begin{tabular}{ | c | c | c | }
+				\hline
+				KeySwitch & \multicolumn{2}{c|}{Relative Power} \\ \cline{2-3}
+				Parameters & A100 & RTX4090 \\
+				\hline
+				$N=2^{15}$, $L=16$, $k=1$ & 8.2x-13.1x & 10.3x \\
+				$N=2^{16}$, $L=31$, $k=1$ & 15.2x-24.2x & 15.2x \\
+				$N=2^{16}$, $L=30$, $k=2$ & 8.7x-13.8 & 8.9x \\
+				$N=2^{16}$, $L=29$, $k=3$ & 7.5x-11.9x & 8.3x \\
+				$N=2^{16}$, $L=28$, $k=4$ & 6x-9.5x & 7.1x \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+		
+		\vspace{1.5em}
+		
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{Relative cost as measured by (GPU Throughput/\$) / (Cornami Throughput/\$). Comparison to A100 not provided as no consistent pricing information was available.}
+			\begin{tabular}{ | c | c | }
+				\hline
+				KeySwitch & Relative Cost \\
+				Parameters & RTX4090 \\
+				\hline
+				$N=2^{15}$, $L=16$, $k=1$ & 160x \\
+				$N=2^{16}$, $L=31$, $k=1$ & 236x \\
+				$N=2^{16}$, $L=30$, $k=2$ & 139x \\
+				$N=2^{16}$, $L=29$, $k=3$ & 129x \\
+				$N=2^{16}$, $L=28$, $k=4$ & 110x \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+		\hfill % Adds spacing between the two tables
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{Relative space as measured by (GPU Throughput/PCIe slot) / (Cornami Throughput/PCIe slot).}
+			\begin{tabular}{ | c | c | c | }
+					\hline
+					KeySwitch & \multicolumn{2}{c|}{Relative Space} \\ \cline{2-3}
+					Parameters & A100 & RTX4090 \\
+					\hline
+					$N=2^{15}$, $L=16$, $k=1$ & 12.0x & 17.0x \\
+					$N=2^{16}$, $L=31$, $k=1$ & 18.9x & 21.4x \\
+					$N=2^{16}$, $L=30$, $k=2$ & 10.8x & 12.6x \\
+					$N=2^{16}$, $L=29$, $k=3$ & 10.2x & 12.7x \\
+					$N=2^{16}$, $L=28$, $k=4$ & 7.5x  & 10.0x \\
+					\hline
+				\end{tabular}
+		\end{subtable}
+		
+		\vspace{1.5em}
+		
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{Relative performance as measured by (GPU Throughput/CUDA core) / (Cornami Throughput/FC).}
+			\begin{tabular}{ | c | c | c | }
+				\hline
+				KeySwitch & \multicolumn{2}{c|}{Relative Latency} \\ \cline{2-3}
+				Cores & A100 & RTX4090 \\
+				\hline
+				$N=2^{15}$, $L=16$, $k=1$ & 12.1x & 7.2x \\
+				$N=2^{16}$, $L=31$, $k=1$ & 22.4x & 10.7x \\
+				$N=2^{16}$, $L=30$, $k=2$ & 12.8x & 6.3x \\
+				$N=2^{16}$, $L=29$, $k=3$ & 11.0x & 5.8x \\
+				$N=2^{16}$, $L=28$, $k=4$ & 8.8x  & 5.0x \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+		\hfill % Adds spacing between the two tables
+		\begin{subtable}[b]{0.45\textwidth}
+			\centering
+			\caption{Relative space as measured by (GPU Throughput/(CUDA core$\cdot$GHz)) / (Cornami Throughput/(FC$\cdot$GHz)).}
+			\begin{tabular}{ | c | c | c | }
+				\hline
+				KeySwitch & \multicolumn{2}{c|}{Relative Cores$\cdot$GHz} \\ \cline{2-3}
+				Parameters & A100 & RTX4090 \\
+				\hline
+				$N=2^{15}$, $L=16$, $k=1$ & 11x-15.8x & 3.2x \\
+				$N=2^{16}$, $L=31$, $k=1$ & 20.4x-29.3x & 4.8x \\
+				$N=2^{16}$, $L=30$, $k=2$ & 11.7x-16.8x & 2.8x \\
+				$N=2^{16}$, $L=29$, $k=3$ & 10x-14.4x & 2.6x \\
+				$N=2^{16}$, $L=28$, $k=4$ & 8x-11.5x & 2.2x \\
+				\hline
+			\end{tabular}
+		\end{subtable}
+	\end{table}
+	
+	\subsection{Analysis}	
+	As noted above,there are two extreme parameter regimes: $k=1$ offers high FHE utility and slow key-switching, while $L=k$ offers the fastest key-switching, but provides low FHE utility. This is apparent in~\cref{tbl:keyswitchbench}, where larger $k$ corresponds to better runtimes on GPU. The way our topology works, we use more space instead of more time for the ``high-utility''/$k=1$ case, so our latency doesn't change between these parameterizations.
+	
+	For a fixed ring dimension $N$, $L+k = c_N$ for some constant $c_N$. Since our completion time is the same for all $L,k$ such that $L+k=c_N$ while GPUs are faster for larger $k$ and slower for small $k$, by pure latency (\cref{tab:keyswitch-normalized}(a)), we compare more favorably for \emph{small} $k$.
+	
+	Interestingly, when we account for number of cores, we are relatively \emph{worse} in this setting because small $k$ results in significantly more core usage, more than the relative advantage we have on performance. By the most-favorable (normalized) metric and parameter set, an RTX4090 is still 2.2x faster than our keyswitch implementation. 
+	
+	Unlike NTT, we compare relatively favorably in terms of raw latency. The bigger the problem, the better we look:
+	\begin{itemize}
+			\item For $N=2^{12}$, we are 4.9x worse than an FPGA
+			\item For $N=2^{13}$, we are 3.77x worse than FPGA
+			\item For $N=2^{14}$, we are 1.57x worse than FPGA
+			\item For $N=2^{15}$, we are 3.4x worse than RTX4090, and 1.4x worse than A100
+			\item For $N=2^{16}$, we are 2.7x-5.0x worse than RTX4090, and 2.4x-3.7x worse than A100
+		\end{itemize}
+	One big caveat to this is that the FPGA numbers are from 2019, so it's not surprising that we look relatively good there and relatively bad against the 2025 GPU benchmarks.
+	
+	As with NTT, our completion time is determined by the streaming architecture rather than the keyswitch algorithm itself. Improving our ``latency'' would require producing more outputs at once, increasing the clock frequency, or decreasing the iteration interval.
+\newpage
+\printbibliography
+
+\end{document}
